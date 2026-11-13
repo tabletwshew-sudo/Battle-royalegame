@@ -20,7 +20,9 @@ Browser Zero Build battle royale (private school project). *Unofficial fan proje
 - `npm run typecheck:shared`: `src/shared` against ES2022 only
 - `npm test`: vitest (tests/**/*.test.ts)
 - `npm run lint:markers`: R4 grep guard
-- `npm run check`: all of the above except build
+- `npm run check`: typecheck + typecheck:shared + test + lint:markers
+- `npm run sim:determinism -- --seed 1 --ticks 900 --runs 3`: headless determinism harness
+- `npm run smoke -- --flags "renderer=webgl&seed=7" --shot out.png`: browser check against `dist/` (run `npm run build` first; add `--webgpu` to request WebGPU)
 
 ## Docs
 - docs/GAME_SPEC.md: behavior authority
@@ -33,3 +35,6 @@ Browser Zero Build battle royale (private school project). *Unofficial fan proje
 - npm needs `legacy-peer-deps=true` (in `.npmrc`): npm 10.9 crashes resolving vitest 5's optional peers.
 - A global `tsc` 6.x exists on this machine. Always use the npm scripts / `npx --no-install tsc` (local 7.0.2).
 - The cloud session's network blocks web hosts. Reference sites could not be fetched in M0.
+- Headless Chromium here cannot present WebGPU frames (device is dropped); only WebGL2 can be screenshot-verified. `npm run smoke -- --webgpu` therefore exercises the automatic WebGL2 fallback.
+- Edge detection lives in the sim (previous `buttons`), never in `Input`. New sim buttons go in `Button` (InputFrame.ts) and `defaultBindings()` (Input.ts).
+- `SimEventMap` (Events.ts) is the single list of sim events; add payload types there.

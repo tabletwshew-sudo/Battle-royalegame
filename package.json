@@ -16,7 +16,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:markers": "node tools/check-markers.mjs",
-    "check": "npm run typecheck && npm run typecheck:shared && npm test && npm run lint:markers"
+    "check": "npm run typecheck && npm run typecheck:shared && npm test && npm run lint:markers",
+    "sim:determinism": "tsx tools/determinism.ts",
+    "smoke": "node tools/smoke.mjs"
   },
   "dependencies": {
     "@colyseus/core": "0.18.23",
