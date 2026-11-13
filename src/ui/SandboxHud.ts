@@ -1,5 +1,5 @@
 /**
- * Minimal HUD for the engine sandbox: crosshair, control hints, a
+ * Minimal HUD for the movement playground: crosshair, control hints, a
  * "click to capture mouse" banner and short event toasts.
  */
 export class SandboxHud {
@@ -18,7 +18,7 @@ export class SandboxHud {
 
     const hints = document.createElement("div");
     hints.textContent =
-      "WASD fly  ·  Mouse look  ·  Space / C up / down  ·  Shift fast  ·  Left click kick  ·  R respawn crates  ·  F3 stats  ·  Esc release mouse";
+      "WASD move  ·  Mouse look  ·  Space jump  ·  C / Ctrl crouch  ·  Right mouse aim  ·  X swap shoulder  ·  Left click kick  ·  R respawn crates  ·  F3 stats  ·  Esc release mouse";
     hints.style.cssText =
       "position:absolute;left:50%;bottom:14px;transform:translateX(-50%);padding:6px 14px;border-radius:999px;background:#0f2a33cc;font-size:13px;white-space:nowrap";
 

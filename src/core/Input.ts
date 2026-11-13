@@ -47,11 +47,20 @@ export function defaultBindings(): Bindings {
 /** Radians of rotation per pixel of mouse travel at sensitivity 1. */
 export const LOOK_RADIANS_PER_PIXEL = 0.0022;
 
+/**
+ * Largest believable mouse delta in one event, in pixels. Some browsers send a
+ * single huge spike right after pointer lock is gained (the distance from the
+ * old cursor position); real mice report far smaller steps per event.
+ */
+export const MAX_MOUSE_DELTA = 400;
+
 export class InputState {
   yaw = 0;
   pitch = 0;
   sensitivity = 1;
   invertY = false;
+  /** Largest allowed |pitch| in radians (the camera may use less than MAX_PITCH). */
+  pitchLimit = MAX_PITCH;
   private readonly down = new Set<string>();
   /** Codes pressed since the last sample, kept even if already released (see sample()). */
   private readonly tapped = new Set<string>();
@@ -68,17 +77,18 @@ export class InputState {
     }
   }
 
-  /** Applies relative mouse movement in pixels to the look angles. */
+  /** Applies relative mouse movement in pixels to the look angles. Implausible spikes are ignored. */
   addLook(dxPixels: number, dyPixels: number): void {
+    if (Math.abs(dxPixels) > MAX_MOUSE_DELTA || Math.abs(dyPixels) > MAX_MOUSE_DELTA) return;
     const k = LOOK_RADIANS_PER_PIXEL * this.sensitivity;
     this.yaw = wrapAngle(this.yaw - dxPixels * k);
-    this.pitch = clamp(this.pitch + (this.invertY ? dyPixels : -dyPixels) * k, -MAX_PITCH, MAX_PITCH);
+    this.pitch = clamp(this.pitch + (this.invertY ? dyPixels : -dyPixels) * k, -this.pitchLimit, this.pitchLimit);
   }
 
   /** Sets the look direction directly (used when a scene starts). */
   setLook(yaw: number, pitch: number): void {
     this.yaw = wrapAngle(yaw);
-    this.pitch = clamp(pitch, -MAX_PITCH, MAX_PITCH);
+    this.pitch = clamp(pitch, -this.pitchLimit, this.pitchLimit);
   }
 
   /** Releases everything (focus loss, pointer unlock). */

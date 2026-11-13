@@ -78,9 +78,9 @@ describe("InputState", () => {
     input.addLook(0, -50);
     expect(input.pitch).toBeCloseTo(-50 * LOOK_RADIANS_PER_PIXEL, 9);
     input.invertY = false;
-    input.addLook(0, -1e6);
+    for (let i = 0; i < 100; i++) input.addLook(0, -300);
     expect(input.pitch).toBe(MAX_PITCH);
-    input.addLook(1e5, 0);
+    for (let i = 0; i < 100; i++) input.addLook(300, 0);
     expect(Math.abs(input.yaw)).toBeLessThanOrEqual(Math.PI);
   });
 
@@ -91,6 +91,25 @@ describe("InputState", () => {
     expect(input.sample().buttons).toBe(Button.Reload);
     expect(input.sample().buttons).toBe(0);
     expect(input.isCodeDown("KeyR")).toBe(false);
+  });
+
+  it("ignores the mouse spike some browsers send right after pointer lock", () => {
+    const input = new InputState();
+    input.addLook(900, -700);
+    expect(input.yaw).toBe(0);
+    expect(input.pitch).toBe(0);
+    input.addLook(40, 0);
+    expect(input.yaw).toBeCloseTo(-40 * LOOK_RADIANS_PER_PIXEL, 9);
+  });
+
+  it("respects a custom pitch limit", () => {
+    const input = new InputState();
+    input.pitchLimit = 1;
+    input.addLook(0, -300);
+    input.addLook(0, -300);
+    expect(input.pitch).toBe(1);
+    input.setLook(0, -5);
+    expect(input.pitch).toBe(-1);
   });
 
   it("releases everything at once and honours rebinding", () => {

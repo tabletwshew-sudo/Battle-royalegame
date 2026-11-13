@@ -5,9 +5,9 @@ A browser-based Zero Build battle royale with squads, bots, pings and Reboot Van
 > **Unofficial fan project, not affiliated with Epic Games.** This is a private school project and is not published or distributed. Fortnite terms appear as text labels only. No Epic assets, logos, characters, music or UI art are used.
 
 ## Status
-Milestones **M0** (research, spec, scaffold) and **M1** (core engine) are complete. The app currently opens an engine sandbox: a physics yard you can fly around. See [PROGRESS.md](PROGRESS.md).
+Milestones **M0** (research, spec, scaffold), **M1** (core engine) and **M2** (movement v1) are complete. The app opens the movement playground: a third-person character on a test course of ramps, stairs, ledges, a crouch tunnel and a crate pile. See [PROGRESS.md](PROGRESS.md).
 
-Sandbox controls: WASD fly, mouse look, Space / C up and down, Shift fast, left click kick, R respawn crates, F3 stats, Esc release mouse. URL flags: `?seed=7`, `?renderer=webgl`, `?quality=low|medium|high|ultra`.
+Controls: WASD move, mouse look, Space jump, C or Ctrl crouch (hold), right mouse aim, X swap shoulder, left click kick crates, R respawn crates, F3 stats, Esc release mouse. URL flags: `?seed=7`, `?renderer=webgl`, `?quality=low|medium|high|ultra`.
 
 ## Quick start
 ```bash

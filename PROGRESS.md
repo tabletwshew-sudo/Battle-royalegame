@@ -5,7 +5,7 @@ Legend: [x] done · [ ] not started · [~] in progress
 ## Milestones
 - [x] **M0 Research & spec**: references logged, mechanics notes, game spec, scaffold, docs, pinned versions
 - [x] **M1 Core engine**: renderer factory (WebGPU + WebGL2), fixed loop, input, Rapier world, shared Rng/Events/Rules, debug overlay, determinism harness
-- [ ] M2 Movement v1: character controller, walk/jump/crouch, third-person camera + spring arm + ADS, procedural rig
+- [x] **M2 Movement v1**: character controller, walk/jump/crouch, third-person camera + spring arm + ADS, procedural rig
 - [ ] M3 Zero Build locomotion: sprint/stamina, slide, mantle/hurdle/vault, shoulder bash, roll landing, skydive, glider, redeploy, fall damage, F9 self-test
 - [ ] M4 Island + graphics: heightmap/biomes/POIs, terrain, foliage, water, sky, shadows, materials, post stack, quality presets, particles
 - [ ] M5 Combat core: layered health/shield/overshield, hitboxes, hitscan + bloom + recoil, projectiles, weapon data, inventory, weapon views, training range, balance report
@@ -47,10 +47,22 @@ Legend: [x] done · [ ] not started · [~] in progress
 
 Flags consumed in M1: `?seed=`, `?renderer=webgl`, `?quality=`. The others are parsed and shown on the start screen but have no consumer until their milestones.
 
+## M2 checklist
+- [x] `MovementConfig` with the spec defaults (run 6, crouch 3, ADS 3.5, gravity 25, jump 1.2 m, coyote 0.10, buffer 0.12, capsule 0.35 / 1.8 / 1.1, autostep 0.45, slope 50 deg)
+- [x] `PlayerController` on Rapier's character controller: ground accel/decel, air steering, jump with coyote + buffer, slopes, autostep, ground snap, crouch with stand-up clearance, ADS walk, shoulder swap, body facing, kill-plane respawn; `jump` / `land` / `respawn` events
+- [x] Player state in the determinism harness: rerun and snapshot/restore stay bit-identical
+- [x] Shared `CameraRig`: over-the-shoulder offset, ADS blend, sphere-swept spring arm (pivot and arm), FOV scale
+- [x] Client `ThirdPersonCamera`: arm snap-in / ease-out, landing dip, ADS zoom, newest mouse angles every frame
+- [x] Procedural humanoid rig (one skinned mesh, 18 bones) + procedural animation (run cycle, strafe, crouch, air, ADS, look, landing)
+- [x] Movement playground course: ramps 20/35/48/55 deg, steps 0.3/0.45/0.6 m, ledges, crouch tunnel, camera walls, platform
+- [x] 93 tests (34 new movement/camera tests), typecheck x2, markers, build, smoke (WebGL2) green; screenshots checked for idle, run, strafe, crouch, jump, ADS, camera against walls
+
 ## Known issues
 - **WebGPU not verified on screen.** The container's headless Chromium initializes WebGPU and compiles pipelines but cannot present frames (no swap-chain image support), so it drops the device. The game then switches to WebGL2 by itself. A WebGPU frame still needs to be checked once on a real GPU browser.
 - **Reference sites unreachable.** The session network policy blocks every web host (`ENOTFOUND`). MECHANICS_NOTES values are `[SPEC]`/`[BG]`, not verified against sources. To fix: allow the hosts in the environment network settings, re-run the fetch pass, and reconcile the notes. Only defaults would change.
 - Legendary Bolt-Action headshot (290) one-shots the 250 max EHP, which is stronger than "two-shot threat". Kept per spec; revisit in the M5 balance pass.
 
+- Headless Chromium cannot produce pointer-lock mouse movement, so mouse look is verified through the debug `look()` control and unit tests, not a real mouse. Check mouse feel once in a desktop browser.
+
 ## Next
-**M2 Movement v1.** Add `MovementConfig` (values from MECHANICS_NOTES), a `PlayerSim` in `src/shared/sim` driven by `InputFrame` using Rapier's `KinematicCharacterController` (capsule r 0.35 / h 1.8, autostep 0.45, snap-to-ground, max slope 50 degrees), walk / jump (coyote 0.10 s, buffer 0.12 s) / crouch (capsule 1.1 with a stand-up clearance check). Client: third-person camera (offset 0.55, 1.6, -3.2, shoulder swap, spring-arm raycast, ADS blend) and a procedural low-poly humanoid rig. Extend the sandbox with slopes, steps and ledges, keep the determinism harness green with the player in it, and add `PlayerSim` snapshot/restore.
+**M3 Zero Build locomotion.** Extend `MovementConfig` / `PlayerController` with tactical sprint + stamina (holster flag, pickaxe infinite sprint), slide (slope acceleration, steering, slide-jump, chain into sprint, slide kick flag), mantle / hurdle / vault (ledge probe: chest ray, normal check, down ray, clearance cast; bezier path; weapon raise delay), shoulder-bash doors (rotating door props), roll landing, skydive / glider / redeploy / glider cut, fall damage (classic + modern splat), camera sprint FOV kick and slide camera, and the F9 self-test panel. Add course pieces: long downhill slope, mantle ledges 0.5-2.3 m, hurdles <= 1.1 m, doors, a tall tower and a launch cliff for redeploy.

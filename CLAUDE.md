@@ -38,3 +38,6 @@ Browser Zero Build battle royale (private school project). *Unofficial fan proje
 - Headless Chromium here cannot present WebGPU frames (device is dropped); only WebGL2 can be screenshot-verified. `npm run smoke -- --webgpu` therefore exercises the automatic WebGL2 fallback.
 - Edge detection lives in the sim (previous `buttons`), never in `Input`. New sim buttons go in `Button` (InputFrame.ts) and `defaultBindings()` (Input.ts).
 - `SimEventMap` (Events.ts) is the single list of sim events; add payload types there.
+- Characters move BEFORE `PhysicsWorld.step()` each tick. After `PhysicsWorld.restoreSnapshot`, every `PlayerController.loadState` must run (it rebuilds the Rapier character controller).
+- Movement debugging: write a small `.mts` probe under the scratchpad and run it with `npx --no-install tsx` (top-level await needs `.mts`). Raw-Rapier probes caught every M2 movement bug.
+- Headless Chromium can't drive pointer-lock mouse look; use `window.__DRIFTGLASS__.look(yaw, pitch)` in browser scripts.

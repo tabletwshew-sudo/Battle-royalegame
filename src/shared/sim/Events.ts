@@ -4,6 +4,12 @@
  * Each milestone adds its events to SimEventMap.
  */
 export interface SimEventMap {
+  /** A character left the ground by jumping. Position is the take-off point (feet). */
+  jump: { id: number; x: number; y: number; z: number };
+  /** A character touched down. `speed` is the downward speed at impact in m/s. */
+  land: { id: number; speed: number; x: number; y: number; z: number };
+  /** A character fell out of the world and was put back at its spawn. */
+  respawn: { id: number; x: number; y: number; z: number };
   /** Sandbox: a radial impulse was applied at a point. */
   sandboxKick: { x: number; y: number; z: number; bodies: number };
   /** Sandbox: all crates were re-seeded and dropped again. */

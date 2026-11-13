@@ -111,26 +111,28 @@ try {
   check(hashBefore !== hashAfter, "keyboard input changes the sim state");
   check((await page.evaluate(() => window.__DRIFTGLASS__.simEvents())) >= 1, "sim events reach the client (respawn)");
 
-  // Mouse path: the first click captures the pointer, movement turns the view, a second click kicks.
+  // Mouse path: the first click captures the pointer, a second click kicks. Headless Chromium
+  // reports pointer-lock movement as cancelling +/- jumps, so turning is checked via look() instead.
+  await page.mouse.move(640, 360);
   await page.mouse.click(640, 360);
   await sleep(300);
   const locked = await page.evaluate(() => document.pointerLockElement !== null);
+  const overlayText = () => page.evaluate(() => document.querySelector("pre")?.textContent ?? "");
   if (locked) {
     const eventsBefore = await page.evaluate(() => window.__DRIFTGLASS__.simEvents());
-    const overlayText = () => page.evaluate(() => document.querySelector("pre")?.textContent ?? "");
-    const yawOf = (text) => Number(/yaw (-?\d+)/.exec(text)?.[1] ?? NaN);
-    const yawBefore = yawOf(await overlayText());
-    await page.mouse.move(840, 360, { steps: 5 });
     await page.mouse.down();
     await sleep(200);
     await page.mouse.up();
     await sleep(700);
-    check(yawOf(await overlayText()) !== yawBefore, "mouse movement turns the view while captured");
     check((await page.evaluate(() => window.__DRIFTGLASS__.simEvents())) > eventsBefore, "left click produces a kick event");
     check((await overlayText()).includes("mouse captured"), "overlay reports the captured mouse");
   } else {
-    console.log("INFO  pointer lock is unavailable in this browser; mouse checks skipped");
+    console.log("INFO  pointer lock is unavailable in this browser; click checks skipped");
   }
+  await page.evaluate(() => window.__DRIFTGLASS__.look(1.2, -0.2));
+  await sleep(400);
+  const look = await page.evaluate(() => window.__DRIFTGLASS__.player());
+  check(Math.abs(look.yaw - 1.2) < 1e-6 && Math.abs(look.pitch + 0.2) < 1e-6, "view angles reach the simulation");
 
   await sleep(1500);
   if (shot) await page.screenshot({ path: shot });

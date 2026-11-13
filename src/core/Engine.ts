@@ -4,7 +4,11 @@ import type { UrlFlags } from "../shared/rules/UrlFlags";
 import type { SimEvent } from "../shared/sim/Events";
 import { hashToHex } from "../shared/sim/Hash";
 import { Button, type ButtonName, type InputFrame, neutralInput } from "../shared/sim/InputFrame";
+import { clamp } from "../shared/sim/MathUtil";
 import { SANDBOX_DEFAULTS, SandboxSim } from "../shared/sim/SandboxSim";
+import { PLAYGROUND } from "../shared/world/Playground";
+import { interpolatePlayer, makePlayerFrame, PlayerView } from "../player/PlayerView";
+import { ThirdPersonCamera } from "../player/ThirdPersonCamera";
 import { SandboxView } from "../render/SandboxView";
 import { SandboxHud } from "../ui/SandboxHud";
 import { DebugOverlay } from "./DebugOverlay";
@@ -39,7 +43,11 @@ export interface EngineOptions {
   onDeviceLost(loss: DeviceLoss): void;
 }
 
-/** Read-only handle exposed on `window.__DRIFTGLASS__` for automated checks. */
+/**
+ * Debug handle exposed on `window.__DRIFTGLASS__` for automated checks.
+ * Everything is read-only except `look()`, which exists because headless
+ * browsers cannot produce real pointer-lock mouse movement.
+ */
 export interface DebugHandle {
   backend: BackendName;
   seed: number;
@@ -48,6 +56,22 @@ export interface DebugHandle {
   fps(): number;
   drawCalls(): number;
   simEvents(): number;
+  /** Player feet position, velocity and flags after the latest tick. */
+  player(): {
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    pitch: number;
+    speed: number;
+    grounded: boolean;
+    crouched: boolean;
+    adsBlend: number;
+  };
+  /** Current camera arm length in metres. */
+  cameraArm(): number;
+  /** Sets the view angles as if the mouse had moved there (radians). */
+  look(yaw: number, pitch: number): void;
 }
 
 /** Picks a fresh seed when the URL gives none. Client-only, so the wall clock is fine here. */
@@ -67,6 +91,9 @@ export class Engine {
   private readonly canvas: HTMLCanvasElement;
   private readonly sim: SandboxSim;
   private readonly view: SandboxView;
+  private readonly playerView: PlayerView;
+  private readonly tpCamera: ThirdPersonCamera;
+  private readonly playerFrame = makePlayerFrame();
   private readonly hud: SandboxHud;
   private readonly overlay: DebugOverlay;
   private readonly input: Input;
@@ -107,12 +134,11 @@ export class Engine {
     this.quality = quality;
     this.seed = flags.seed ?? randomSeed();
 
-    this.sim = new SandboxSim({
-      seed: this.seed,
-      crateCount: SANDBOX_DEFAULTS.crateCount,
-      obstacleCount: SANDBOX_DEFAULTS.obstacleCount,
-    });
-    this.view = new SandboxView(this.sim, settings.value.fov);
+    this.sim = new SandboxSim({ seed: this.seed, crateCount: SANDBOX_DEFAULTS.crateCount });
+    this.view = new SandboxView(this.sim);
+    this.playerView = new PlayerView();
+    this.view.scene.add(this.playerView.object);
+    this.tpCamera = new ThirdPersonCamera(this.view.camera, this.sim.camera);
     this.hud = new SandboxHud(root);
     this.overlay = new DebugOverlay(root);
     this.overlay.setVisible(settings.value.showStats);
@@ -126,7 +152,8 @@ export class Engine {
       undefined,
       ["F3"],
     );
-    this.input.state.setLook(this.sim.probe.yaw, this.sim.probe.pitch);
+    this.input.state.pitchLimit = (this.sim.movement.maxPitchDeg * Math.PI) / 180;
+    this.input.state.setLook(PLAYGROUND.spawnYaw, -0.12);
     this.applySettings();
     this.cleanups.push(settings.subscribe(() => this.applySettings()));
 
@@ -166,6 +193,22 @@ export class Engine {
       fps: () => this.loop.stats.fps,
       drawCalls: () => this.handle.renderer.info.render.drawCalls,
       simEvents: () => this.simEventCount,
+      player: () => {
+        const p = this.sim.player.state;
+        return {
+          x: p.x,
+          y: p.y,
+          z: p.z,
+          yaw: p.yaw,
+          pitch: p.pitch,
+          speed: this.sim.player.horizontalSpeed,
+          grounded: p.grounded,
+          crouched: p.crouched,
+          adsBlend: p.adsBlend,
+        };
+      },
+      cameraArm: () => this.tpCamera.armLength,
+      look: (yaw, pitch) => this.input.state.setLook(yaw, pitch),
     };
   }
 
@@ -176,6 +219,7 @@ export class Engine {
     for (const cleanup of this.cleanups) cleanup();
     this.hud.dispose();
     this.overlay.dispose();
+    this.playerView.dispose();
     this.view.dispose();
     this.sim.dispose();
     this.handle.renderer.dispose();
@@ -190,6 +234,16 @@ export class Engine {
   }
 
   private render(alpha: number, frameSeconds: number): void {
+    const frame = interpolatePlayer(this.sim.previousPlayer, this.sim.player.state, alpha, this.playerFrame);
+    // The view uses the newest mouse angles (not the last tick's) so looking never lags a frame.
+    const look = this.input.state;
+    frame.yaw = look.yaw;
+    frame.pitch = clamp(look.pitch, -look.pitchLimit, look.pitchLimit);
+    this.playerView.update(frame, frame.yaw, frame.pitch, frameSeconds);
+    this.tpCamera.update(frame, this.sim.world, this.sim.player.collider, this.options.settings.value.fov, frameSeconds);
+    const cam = this.view.camera.position;
+    const headY = frame.y + this.sim.camera.pivotHeight - 0.5 * frame.crouchBlend;
+    this.playerView.setCameraDistance(Math.hypot(cam.x - frame.x, cam.y - headY, cam.z - frame.z));
     this.view.update(alpha, frameSeconds);
     this.hud.update(frameSeconds);
     this.handle.renderer.render(this.view.scene, this.view.camera);
@@ -205,6 +259,15 @@ export class Engine {
         break;
       case "sandboxRespawn":
         this.hud.showToast(`Crates respawned (drop #${event.generation + 1})`);
+        break;
+      case "land":
+        this.tpCamera.land(event.speed);
+        this.playerView.land(event.speed);
+        break;
+      case "respawn":
+        this.hud.showToast("Fell out of the world: back to spawn");
+        break;
+      case "jump":
         break;
     }
   }
@@ -226,7 +289,6 @@ export class Engine {
     const s = this.options.settings.value;
     this.input.state.sensitivity = s.mouseSensitivity;
     this.input.state.invertY = s.invertY;
-    this.view.setFov(s.fov);
   }
 
   private resize(): void {
@@ -242,7 +304,7 @@ export class Engine {
     const stats = (): GameLoop["stats"] => this.loop.stats;
     const info = this.handle.renderer.info;
     const o = this.overlay;
-    o.addLine(() => `DRIFTGLASS  M1 engine sandbox   seed ${this.seed}`);
+    o.addLine(() => `DRIFTGLASS  M2 movement playground   seed ${this.seed}`);
     o.addLine(
       () =>
         `fps ${stats().fps.toFixed(0)}   frame ${stats().frameMs.toFixed(1)} ms (worst ${stats().worstFrameMs.toFixed(1)})   ` +
@@ -262,9 +324,20 @@ export class Engine {
       () => `bodies ${this.sim.bodyCount} (crates awake ${this.sim.awakeCount}/${this.sim.crateCount})   sim events ${this.simEventCount}`,
     );
     o.addLine(() => {
-      const p = this.sim.probe;
+      const p = this.sim.player.state;
+      return (
+        `player ${p.x.toFixed(2)} ${p.y.toFixed(2)} ${p.z.toFixed(2)}   speed ${this.sim.player.horizontalSpeed.toFixed(2)} m/s   ` +
+        `vy ${p.vy.toFixed(2)}   ${p.grounded ? "grounded" : `air ${p.airTime.toFixed(2)} s`}`
+      );
+    });
+    o.addLine(() => {
+      const p = this.sim.player.state;
       const deg = (r: number): string => ((r * 180) / Math.PI).toFixed(0);
-      return `probe ${p.x.toFixed(1)} ${p.y.toFixed(1)} ${p.z.toFixed(1)}   yaw ${deg(p.yaw)}  pitch ${deg(p.pitch)}`;
+      const slope = deg(Math.acos(Math.min(1, p.groundNy)));
+      return (
+        `${p.crouched ? "crouched" : "standing"}   ads ${p.adsBlend.toFixed(2)}   shoulder ${p.shoulder > 0 ? "right" : "left"}   ` +
+        `look ${deg(p.yaw)}/${deg(p.pitch)}   body ${deg(p.bodyYaw)}   slope ${slope} deg   arm ${this.tpCamera.armLength.toFixed(2)} m`
+      );
     });
     o.addLine(() => {
       const held = (Object.keys(Button) as ButtonName[]).filter((name) => (this.lastInput.buttons & Button[name]) !== 0);

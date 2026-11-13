@@ -18,7 +18,7 @@ export class StartScreen {
   private readonly element: HTMLDivElement;
   private readonly button: HTMLButtonElement;
   private readonly status: HTMLParagraphElement;
-  private static readonly BUTTON_LABEL = "Enter engine sandbox";
+  private static readonly BUTTON_LABEL = "Enter movement playground";
 
   constructor(parent: HTMLElement, options: StartScreenOptions) {
     document.body.style.margin = "0";
@@ -62,7 +62,7 @@ export class StartScreen {
 
     this.status = document.createElement("p");
     this.status.style.cssText = "margin:0;min-height:22px;font-size:16px;opacity:0.85;text-align:center;padding:0 16px";
-    this.status.textContent = "Milestone M1: core engine. Fly around a physics yard to check the renderer, loop and input.";
+    this.status.textContent = "Milestone M2: movement. Run, jump and crouch through the movement playground in third person.";
 
     const flags = document.createElement("p");
     flags.textContent = options.flagSummary;

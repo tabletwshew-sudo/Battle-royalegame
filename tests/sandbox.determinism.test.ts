@@ -1,10 +1,11 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { initPhysics, makeRayHit, PhysicsWorld } from "../src/shared/physics/PhysicsWorld";
 import { checkDeterminism, firstDivergence, makeInputScript, runAndHash } from "../src/shared/sim/Determinism";
-import { Button, neutralInput } from "../src/shared/sim/InputFrame";
+import { Button, type InputFrame, neutralInput } from "../src/shared/sim/InputFrame";
 import { SandboxSim } from "../src/shared/sim/SandboxSim";
+import { CRATE_AREA } from "../src/shared/world/Playground";
 
-const create = (seed: number) => (): SandboxSim => new SandboxSim({ seed, crateCount: 60, obstacleCount: 8 });
+const create = (seed: number) => (): SandboxSim => new SandboxSim({ seed, crateCount: 40 });
 
 beforeAll(async () => {
   await initPhysics();
@@ -25,6 +26,20 @@ describe("PhysicsWorld", () => {
     world.dispose();
   });
 
+  it("sphere-casts, tests capsule overlap and respects excluded colliders", () => {
+    const world = new PhysicsWorld();
+    world.addStaticBox({ x: 0, y: 1, z: -5 }, { x: 5, y: 1, z: 0.5 });
+    const capsule = world.addCharacterCapsule({ x: 0, y: 1, z: 0 }, 0.55, 0.35);
+    world.step();
+    // Wall front face at z = -4.5; a 0.2 m sphere from z = 0 stops 0.2 m short.
+    expect(world.sphereCast({ x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: -1 }, 10, 0.2, { exclude: capsule })).toBeCloseTo(4.3, 2);
+    expect(world.sphereCast({ x: 0, y: 1, z: 0 }, { x: 0, y: 0, z: 1 }, 10, 0.2, { exclude: capsule })).toBe(10);
+    expect(world.capsuleOverlaps({ x: 0, y: 1, z: -4.6 }, 0.5, 0.3)).toBe(true);
+    expect(world.capsuleOverlaps({ x: 0, y: 1, z: 0 }, 0.5, 0.3)).toBe(true);
+    expect(world.capsuleOverlaps({ x: 0, y: 1, z: 0 }, 0.5, 0.3, { exclude: capsule })).toBe(false);
+    world.dispose();
+  });
+
   it("drops a dynamic box onto the ground and lets it come to rest", () => {
     const world = new PhysicsWorld();
     world.addStaticBox({ x: 0, y: -0.5, z: 0 }, { x: 10, y: 0.5, z: 10 });
@@ -37,7 +52,7 @@ describe("PhysicsWorld", () => {
   });
 });
 
-describe("Determinism harness (SandboxSim + Rapier)", () => {
+describe("Determinism harness (SandboxSim with player + Rapier)", () => {
   it("replays identically and survives snapshot/restore", () => {
     for (const seed of [1, 2024]) {
       const report = checkDeterminism(create(seed), seed, 480);
@@ -73,7 +88,7 @@ describe("Determinism harness (SandboxSim + Rapier)", () => {
   });
 });
 
-describe("SandboxSim behaviour", () => {
+describe("SandboxSim props", () => {
   it("lets crates fall and settle on the ground", () => {
     const sim = create(3)();
     for (let i = 0; i < 900; i++) sim.step(neutralInput());
@@ -87,41 +102,24 @@ describe("SandboxSim behaviour", () => {
     sim.dispose();
   });
 
-  it("moves the probe with input and keeps the previous state for interpolation", () => {
-    const sim = create(3)();
-    const startZ = sim.probe.z;
-    sim.step({ moveX: 0, moveZ: 1, yaw: 0, pitch: 0, buttons: 0 });
-    expect(sim.probe.z).toBeCloseTo(startZ - 10 / 60, 6);
-    expect(sim.previousProbe.z).toBe(startZ);
-    sim.step({ moveX: 0, moveZ: 1, yaw: 0, pitch: 0, buttons: Button.Sprint });
-    expect(sim.probe.z).toBeCloseTo(startZ - 10 / 60 - 30 / 60, 6);
-    const y = sim.probe.y;
-    sim.step({ moveX: 0, moveZ: 0, yaw: 0, pitch: 0, buttons: Button.Jump });
-    expect(sim.probe.y).toBeGreaterThan(y);
-    sim.dispose();
-  });
-
-  it("emits one kick event per press and pushes nearby crates", () => {
+  it("kicks crates at the point aimed at through the camera", () => {
     const sim = create(3)();
     for (let i = 0; i < 600; i++) sim.step(neutralInput());
+    // Stand south-west of the pile and look at its centre, slightly downward.
+    sim.player.teleport(CRATE_AREA.x, 0.05, CRATE_AREA.z + 14);
+    const aim: InputFrame = { moveX: 0, moveZ: 0, yaw: 0, pitch: -0.2, buttons: 0 };
+    for (let i = 0; i < 30; i++) sim.step(aim);
     sim.drainEvents();
-    // Fly level to the middle of the yard (26 m at 10 m/s), then aim straight down at the pile.
-    for (let i = 0; i < 156; i++) sim.step({ moveX: 0, moveZ: 1, yaw: 0, pitch: 0, buttons: 0 });
-    expect(Math.abs(sim.probe.z)).toBeLessThan(0.2);
-    const aim = { moveX: 0, moveZ: 0, yaw: 0, pitch: -1.45, buttons: 0 };
-    sim.step(aim);
     const before = Float32Array.from(sim.transforms);
     sim.step({ ...aim, buttons: Button.Fire });
     sim.step({ ...aim, buttons: Button.Fire });
     for (let i = 0; i < 30; i++) sim.step(aim);
-    const events = sim.drainEvents();
-    expect(events).toHaveLength(1);
-    expect(events[0]?.type).toBe("sandboxKick");
-    const kick = events[0] as Extract<(typeof events)[number], { type: "sandboxKick" }>;
-    expect(kick.bodies).toBeGreaterThan(0);
+    const kicks = sim.drainEvents().filter((event) => event.type === "sandboxKick");
+    expect(kicks).toHaveLength(1);
+    expect(kicks[0]?.type === "sandboxKick" && kicks[0].bodies).toBeGreaterThan(0);
     let moved = 0;
-    for (let i = 0; i < sim.crateCount; i++) {
-      if (Math.abs((sim.transforms[i * 7 + 1] as number) - (before[i * 7 + 1] as number)) > 0.05) moved++;
+    for (let i = 0; i < sim.crateCount * 7; i += 7) {
+      if (Math.abs((sim.transforms[i] as number) - (before[i] as number)) > 0.05) moved++;
     }
     expect(moved).toBeGreaterThan(0);
     sim.dispose();
@@ -134,12 +132,12 @@ describe("SandboxSim behaviour", () => {
       for (let i = 0; i < 60; i++) sim.step(neutralInput());
       sim.step({ ...neutralInput(), buttons: Button.Reload });
     }
-    const events = a.drainEvents();
-    expect(events).toEqual([{ type: "sandboxRespawn", tick: 60, generation: 1, crates: 60 }]);
+    const events = a.drainEvents().filter((event) => event.type === "sandboxRespawn");
+    expect(events).toEqual([{ type: "sandboxRespawn", tick: 60, generation: 1, crates: 40 }]);
     expect(a.hash()).toBe(b.hash());
     let high = 0;
     for (let i = 0; i < a.crateCount; i++) if ((a.transforms[i * 7 + 1] as number) > 1.5) high++;
-    expect(high).toBeGreaterThan(40);
+    expect(high).toBeGreaterThan(25);
     a.dispose();
     b.dispose();
   });

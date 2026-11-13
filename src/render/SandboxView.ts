@@ -18,9 +18,11 @@ import {
   Vector3,
 } from "three/webgpu";
 import { abs, cameraPosition, color, float, fract, fwidth, length, min, mix, positionWorld, smoothstep } from "three/tsl";
-import { lerp, lerpAngle } from "../shared/sim/MathUtil";
+import { lerp } from "../shared/sim/MathUtil";
 import { Rng } from "../shared/sim/Rng";
 import { SANDBOX_DEFAULTS, type SandboxSim, TRANSFORM_STRIDE } from "../shared/sim/SandboxSim";
+import type { BlockKind } from "../shared/world/Playground";
+import { PLAYGROUND } from "../shared/world/Playground";
 
 /** Brand palette used for the sandbox props. */
 const PALETTE = {
@@ -32,6 +34,14 @@ const PALETTE = {
   sky: 0x9fd4e6,
 } as const;
 
+const BLOCK_COLORS: Record<BlockKind, number> = {
+  course: 0x6d5bd0,
+  ramp: 0xe0874f,
+  step: 0xd9c49b,
+  wall: 0x2f5560,
+  scenery: 0x1d3a43,
+};
+
 const CRATE_COLORS = [PALETTE.sand, PALETTE.orange, PALETTE.violet, 0x4cc9b0] as const;
 const KICK_MARKER_SECONDS = 0.45;
 const KICK_MARKER_POOL = 6;
@@ -42,9 +52,9 @@ interface KickMarker {
 }
 
 /**
- * Draws the SandboxSim: grid ground, static blocks, instanced crates and
- * short-lived kick markers. All state is read from the sim; nothing here
- * feeds back into it.
+ * Draws the SandboxSim's world: grid ground, playground blocks, instanced
+ * crates and short-lived kick markers. Characters are drawn by PlayerView.
+ * All state is read from the sim; nothing here feeds back into it.
  */
 export class SandboxView {
   readonly scene = new Scene();
@@ -60,15 +70,11 @@ export class SandboxView {
   private readonly rotationB = new Quaternion();
   private readonly unitScale = new Vector3(1, 1, 1);
 
-  constructor(
-    private readonly sim: SandboxSim,
-    fovDegrees: number,
-  ) {
+  constructor(private readonly sim: SandboxSim) {
     this.scene.background = new Color(PALETTE.sky);
     this.scene.fog = new Fog(PALETTE.sky, 90, 260);
 
-    this.camera = new PerspectiveCamera(fovDegrees, 1, 0.1, 600);
-    this.camera.rotation.order = "YXZ";
+    this.camera = new PerspectiveCamera(80, 1, 0.05, 600);
 
     this.scene.add(new HemisphereLight(0xd7f0ff, 0x1c3038, 1.4));
     const sun = new DirectionalLight(0xfff1d6, 2.6);
@@ -76,15 +82,10 @@ export class SandboxView {
     this.scene.add(sun);
 
     this.scene.add(this.buildGround());
-    this.scene.add(this.buildObstacles());
+    this.scene.add(this.buildBlocks());
     this.crates = this.buildCrates();
     this.scene.add(this.crates);
     this.buildMarkers();
-  }
-
-  setFov(fovDegrees: number): void {
-    this.camera.fov = fovDegrees;
-    this.camera.updateProjectionMatrix();
   }
 
   setAspect(aspect: number): void {
@@ -102,11 +103,10 @@ export class SandboxView {
   }
 
   /**
-   * Updates the camera and instances for one rendered frame.
+   * Updates instances for one rendered frame.
    * @param alpha blend factor between the previous and the current sim tick
    */
   update(alpha: number, frameSeconds: number): void {
-    this.updateCamera(alpha);
     this.updateCrates(alpha);
     this.updateMarkers(frameSeconds);
   }
@@ -121,9 +121,9 @@ export class SandboxView {
     });
   }
 
-  /** Ground slab with a procedural anti-aliased 1 m / 10 m grid (TSL). */
+  /** Ground plane with a procedural anti-aliased 1 m / 10 m grid (TSL). */
   private buildGround(): Mesh {
-    const size = SANDBOX_DEFAULTS.groundHalf * 2;
+    const size = PLAYGROUND.groundHalf * 2;
     const material = new MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0 });
     const xz = positionWorld.xz;
     // Returns 1 on a grid line of the given cell size and 0 elsewhere, one pixel wide.
@@ -142,35 +142,37 @@ export class SandboxView {
     return ground;
   }
 
-  private buildObstacles(): InstancedMesh {
-    const obstacles = this.sim.obstacles;
+  /** Every playground block except the ground slab, in one instanced draw. */
+  private buildBlocks(): InstancedMesh {
+    const blocks = this.sim.blocks.filter((block) => block.name !== "ground");
     const mesh = new InstancedMesh(
       new BoxGeometry(2, 2, 2),
-      new MeshStandardMaterial({ color: PALETTE.teal, roughness: 0.8 }),
-      obstacles.length,
+      new MeshStandardMaterial({ roughness: 0.85, flatShading: true }),
+      blocks.length,
     );
     const scale = new Vector3();
-    const identity = new Quaternion();
-    obstacles.forEach((obstacle, i) => {
-      this.position.set(obstacle.center.x, obstacle.center.y, obstacle.center.z);
-      scale.set(obstacle.half.x, obstacle.half.y, obstacle.half.z);
-      mesh.setMatrixAt(i, this.matrix.compose(this.position, identity, scale));
+    const tint = new Color();
+    blocks.forEach((block, i) => {
+      this.position.set(block.center.x, block.center.y, block.center.z);
+      this.rotation.set(block.rotation.x, block.rotation.y, block.rotation.z, block.rotation.w);
+      scale.set(block.half.x, block.half.y, block.half.z);
+      mesh.setMatrixAt(i, this.matrix.compose(this.position, this.rotation, scale));
+      mesh.setColorAt(i, tint.setHex(BLOCK_COLORS[block.kind]));
     });
     mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
     return mesh;
   }
 
   private buildCrates(): InstancedMesh {
     const edge = SANDBOX_DEFAULTS.crateHalf * 2;
-    const mesh = new InstancedMesh(
-      new BoxGeometry(edge, edge, edge),
-      new MeshStandardMaterial({ roughness: 0.65 }),
-      this.sim.crateCount,
-    );
+    const count = Math.max(1, this.sim.crateCount);
+    const mesh = new InstancedMesh(new BoxGeometry(edge, edge, edge), new MeshStandardMaterial({ roughness: 0.65 }), count);
+    mesh.count = this.sim.crateCount;
     // Colours are cosmetic, but seeded so the same seed always looks the same.
     const rng = new Rng(this.sim.seed).fork("crate-colors");
     const tint = new Color();
-    for (let i = 0; i < this.sim.crateCount; i++) mesh.setColorAt(i, tint.setHex(rng.pick(CRATE_COLORS)));
+    for (let i = 0; i < count; i++) mesh.setColorAt(i, tint.setHex(rng.pick(CRATE_COLORS)));
     // Crates travel far from the mesh origin, so the default bounds would cull them wrongly.
     mesh.frustumCulled = false;
     return mesh;
@@ -185,13 +187,6 @@ export class SandboxView {
       this.scene.add(mesh);
       this.markers.push({ mesh, age: 0 });
     }
-  }
-
-  private updateCamera(alpha: number): void {
-    const a = this.sim.previousProbe;
-    const b = this.sim.probe;
-    this.camera.position.set(lerp(a.x, b.x, alpha), lerp(a.y, b.y, alpha), lerp(a.z, b.z, alpha));
-    this.camera.rotation.set(lerp(a.pitch, b.pitch, alpha), lerpAngle(a.yaw, b.yaw, alpha), 0);
   }
 
   private updateCrates(alpha: number): void {

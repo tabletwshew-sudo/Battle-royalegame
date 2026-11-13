@@ -26,7 +26,7 @@ let failed = false;
 for (let i = 0; i < runs; i++) {
   const seed = firstSeed + i;
   const create = (): SandboxSim =>
-    new SandboxSim({ seed, crateCount: SANDBOX_DEFAULTS.crateCount, obstacleCount: SANDBOX_DEFAULTS.obstacleCount });
+    new SandboxSim({ seed, crateCount: SANDBOX_DEFAULTS.crateCount });
   const started = performance.now();
   const report = checkDeterminism(create, seed, ticks);
   const ms = performance.now() - started;

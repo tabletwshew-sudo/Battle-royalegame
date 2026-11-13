@@ -1,72 +1,63 @@
 import type RAPIER from "@dimforge/rapier3d-compat";
-import { makeRayHit, PhysicsWorld } from "../physics/PhysicsWorld";
-import { SIM_DT } from "./Constants";
+import { makeRayHit, PhysicsWorld, QUERY_WORLD_AND_PROPS } from "../physics/PhysicsWorld";
+import { type Block, buildPlayground, CRATE_AREA, PLAYGROUND } from "../world/Playground";
+import { type CameraConfig, computeCameraPose, defaultCameraConfig, makeCameraPose } from "./CameraRig";
 import { EventQueue, type SimEvent } from "./Events";
 import { StateHasher } from "./Hash";
 import { Button, type InputFrame, wasPressed } from "./InputFrame";
-import { lookDirection, type Vec3 } from "./MathUtil";
+import type { Vec3 } from "./MathUtil";
+import { defaultMovementConfig, type MovementConfig } from "./MovementConfig";
+import { PlayerController, type PlayerState } from "./PlayerSim";
 import { Rng, type RngState } from "./Rng";
 import type { Simulation } from "./Simulation";
 
 /**
- * Engine sandbox: a seeded yard of static blocks and loose crates plus a
- * free-flying probe driven by InputFrames. It exercises the whole core
- * pipeline (input -> fixed sim -> physics -> events -> interpolated render)
- * and is the subject of the determinism harness.
+ * Engine sandbox: the movement playground (fixed course + seeded scenery),
+ * a pile of loose crates and one player character driven by InputFrames.
+ * It exercises the whole pipeline (input -> fixed sim -> physics -> events
+ * -> interpolated render) and is the subject of the determinism harness.
  */
 
 export interface SandboxConfig {
   seed: number;
   crateCount: number;
-  obstacleCount: number;
+  movement?: MovementConfig;
+  camera?: CameraConfig;
 }
 
 export const SANDBOX_DEFAULTS = {
-  crateCount: 120,
-  obstacleCount: 14,
-  /** Half size of the square ground slab in metres. */
-  groundHalf: 100,
+  crateCount: 80,
   crateHalf: 0.5,
-  probeSpeed: 10,
-  probeSprintSpeed: 30,
   kickRange: 60,
-  kickRadius: 5,
+  kickRadius: 4,
   kickImpulse: 14,
 } as const;
-
-/** Static block description, exposed so the renderer can draw it. */
-export interface SandboxObstacle {
-  center: Vec3;
-  half: Vec3;
-}
-
-export interface Probe {
-  x: number;
-  y: number;
-  z: number;
-  yaw: number;
-  pitch: number;
-}
 
 export interface SandboxSnapshot {
   tick: number;
   generation: number;
   previousButtons: number;
-  probe: Probe;
   rng: RngState;
   bodyHandles: number[];
+  player: PlayerState;
   physics: Uint8Array;
 }
 
 /** Floats stored per crate in the transform buffers: position xyz + quaternion xyzw. */
 export const TRANSFORM_STRIDE = 7;
 
+/** Entity id of the local player in the sandbox. */
+export const SANDBOX_PLAYER_ID = 1;
+
 export class SandboxSim implements Simulation<SandboxSnapshot> {
   tick = 0;
   readonly seed: number;
-  readonly obstacles: SandboxObstacle[] = [];
-  readonly probe: Probe = { x: 0, y: 4, z: 26, yaw: 0, pitch: -0.15 };
-  readonly previousProbe: Probe = { ...this.probe };
+  readonly blocks: Block[];
+  readonly player: PlayerController;
+  /** Player state after the previous tick (render interpolation). */
+  readonly previousPlayer: PlayerState;
+  readonly movement: MovementConfig;
+  readonly camera: CameraConfig;
   /** Crate transforms after the latest tick and after the tick before it (for interpolation). */
   transforms: Float32Array;
   previousTransforms: Float32Array;
@@ -78,21 +69,37 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
   private bodies: RAPIER.RigidBody[] = [];
   private generation = 0;
   private previousButtons = 0;
-  private readonly forward: Vec3 = { x: 0, y: 0, z: -1 };
+  private readonly cameraPose = makeCameraPose();
   private readonly rayHit = makeRayHit();
 
   /** initPhysics() must have resolved before constructing. */
   constructor(config: SandboxConfig) {
     this.seed = config.seed >>> 0;
+    this.movement = config.movement ?? defaultMovementConfig();
+    this.camera = config.camera ?? defaultCameraConfig();
     this.root = new Rng(this.seed);
     this.crateRng = this.root.fork("crates", 0);
-    this.physics = new PhysicsWorld();
+    this.physics = new PhysicsWorld(this.movement.gravity);
+    this.blocks = buildPlayground(this.seed);
+    for (const block of this.blocks) this.physics.addStaticBox(block.center, block.half, {}, block.rotation);
+    this.spawnCrates(config.crateCount);
+    this.player = new PlayerController(
+      SANDBOX_PLAYER_ID,
+      this.physics,
+      this.movement,
+      PLAYGROUND.spawn,
+      PLAYGROUND.spawnYaw,
+    );
+    this.previousPlayer = this.player.saveState();
     this.transforms = new Float32Array(config.crateCount * TRANSFORM_STRIDE);
     this.previousTransforms = new Float32Array(config.crateCount * TRANSFORM_STRIDE);
-    this.buildStaticWorld(config.obstacleCount);
-    this.spawnCrates(config.crateCount);
     this.readTransforms();
     this.previousTransforms.set(this.transforms);
+  }
+
+  /** The physics world (read-only use by the client: camera collision, debug probes). */
+  get world(): PhysicsWorld {
+    return this.physics;
   }
 
   get crateCount(): number {
@@ -112,9 +119,9 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
 
   step(input: InputFrame): void {
     this.previousTransforms.set(this.transforms);
-    Object.assign(this.previousProbe, this.probe);
+    Object.assign(this.previousPlayer, this.player.state);
 
-    this.moveProbe(input);
+    this.player.step(input, this.tick, this.events);
     if (wasPressed(input.buttons, this.previousButtons, Button.Fire)) this.kick();
     if (wasPressed(input.buttons, this.previousButtons, Button.Reload)) this.respawnCrates();
     this.previousButtons = input.buttons;
@@ -131,8 +138,7 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
   hash(): number {
     const hasher = new StateHasher();
     hasher.addInt(this.tick).addInt(this.generation).addInt(this.previousButtons);
-    hasher.addNumber(this.probe.x).addNumber(this.probe.y).addNumber(this.probe.z);
-    hasher.addNumber(this.probe.yaw).addNumber(this.probe.pitch);
+    this.player.hashInto(hasher);
     for (const body of this.bodies) {
       const t = body.translation();
       const r = body.rotation();
@@ -149,9 +155,9 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
       tick: this.tick,
       generation: this.generation,
       previousButtons: this.previousButtons,
-      probe: { ...this.probe },
       rng: this.crateRng.getState(),
       bodyHandles: this.bodies.map((body) => body.handle),
+      player: this.player.saveState(),
       physics: this.physics.takeSnapshot(),
     };
   }
@@ -160,33 +166,19 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
     this.tick = snapshot.tick;
     this.generation = snapshot.generation;
     this.previousButtons = snapshot.previousButtons;
-    Object.assign(this.probe, snapshot.probe);
-    Object.assign(this.previousProbe, snapshot.probe);
     this.crateRng = Rng.fromState(snapshot.rng);
     this.physics.restoreSnapshot(snapshot.physics);
     this.bodies = snapshot.bodyHandles.map((handle) => this.physics.world.getRigidBody(handle));
+    this.player.loadState(snapshot.player);
+    Object.assign(this.previousPlayer, snapshot.player);
     this.readTransforms();
     this.previousTransforms.set(this.transforms);
     this.events.drain();
   }
 
   dispose(): void {
+    this.player.dispose();
     this.physics.dispose();
-  }
-
-  /** Ground slab plus seeded blocks and pillars to bounce crates off. */
-  private buildStaticWorld(obstacleCount: number): void {
-    const g = SANDBOX_DEFAULTS.groundHalf;
-    this.physics.addStaticBox({ x: 0, y: -0.5, z: 0 }, { x: g, y: 0.5, z: g });
-    const rng = this.root.fork("obstacles");
-    for (let i = 0; i < obstacleCount; i++) {
-      const half = { x: rng.range(0.8, 3), y: rng.range(0.5, 4), z: rng.range(0.8, 3) };
-      const angle = rng.range(0, Math.PI * 2);
-      const radius = rng.range(6, 32);
-      const center = { x: Math.cos(angle) * radius, y: half.y, z: Math.sin(angle) * radius };
-      this.physics.addStaticBox(center, half);
-      this.obstacles.push({ center, half });
-    }
   }
 
   private spawnCrates(count: number): void {
@@ -198,40 +190,22 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
 
   private randomCratePosition(): Vec3 {
     const rng = this.crateRng;
-    return { x: rng.range(-9, 9), y: rng.range(2, 34), z: rng.range(-9, 9) };
+    const spread = CRATE_AREA.spread;
+    return { x: CRATE_AREA.x + rng.range(-spread, spread), y: rng.range(2, 26), z: CRATE_AREA.z + rng.range(-spread, spread) };
   }
 
-  /** Free-fly movement along the look direction; Jump rises, Crouch sinks. */
-  private moveProbe(input: InputFrame): void {
-    const probe = this.probe;
-    probe.yaw = input.yaw;
-    probe.pitch = input.pitch;
-    const sprinting = (input.buttons & Button.Sprint) !== 0;
-    const speed = sprinting ? SANDBOX_DEFAULTS.probeSprintSpeed : SANDBOX_DEFAULTS.probeSpeed;
-    const forward = lookDirection(probe.yaw, probe.pitch, this.forward);
-    // Right vector is horizontal and perpendicular to the yaw heading.
-    const rightX = Math.cos(probe.yaw);
-    const rightZ = -Math.sin(probe.yaw);
-    const rise = ((input.buttons & Button.Jump) !== 0 ? 1 : 0) - ((input.buttons & Button.Crouch) !== 0 ? 1 : 0);
-    const step = speed * SIM_DT;
-    probe.x += (forward.x * input.moveZ + rightX * input.moveX) * step;
-    probe.y += (forward.y * input.moveZ + rise) * step;
-    probe.z += (forward.z * input.moveZ + rightZ * input.moveX) * step;
-    const limit = SANDBOX_DEFAULTS.groundHalf;
-    probe.x = Math.min(limit, Math.max(-limit, probe.x));
-    probe.z = Math.min(limit, Math.max(-limit, probe.z));
-    probe.y = Math.min(80, Math.max(0.5, probe.y));
-  }
-
-  /** Pushes every crate near the aimed point away from it. */
+  /** Pushes every crate near the point aimed at through the crosshair (camera ray). */
   private kick(): void {
     const d = SANDBOX_DEFAULTS;
-    const forward = lookDirection(this.probe.yaw, this.probe.pitch, this.forward);
-    const hit = this.physics.raycast(this.probe, forward, d.kickRange, this.rayHit);
-    const reach = hit !== null ? hit.distance : 8;
-    const px = this.probe.x + forward.x * reach;
-    const py = this.probe.y + forward.y * reach;
-    const pz = this.probe.z + forward.z * reach;
+    const pose = computeCameraPose(this.player.state, this.camera, this.physics, this.player.collider, this.cameraPose);
+    const hit = this.physics.raycast(pose.position, pose.forward, d.kickRange, this.rayHit, {
+      groups: QUERY_WORLD_AND_PROPS,
+      exclude: this.player.collider,
+    });
+    const reach = hit !== null ? hit.distance : 12;
+    const px = pose.position.x + pose.forward.x * reach;
+    const py = pose.position.y + pose.forward.y * reach;
+    const pz = pose.position.z + pose.forward.z * reach;
     let affected = 0;
     for (const body of this.bodies) {
       const t = body.translation();
