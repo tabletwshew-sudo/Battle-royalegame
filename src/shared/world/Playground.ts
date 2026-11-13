@@ -1,6 +1,7 @@
-import { axisQuat, IDENTITY_QUAT, type Quat } from "../physics/PhysicsWorld";
+import { axisQuat, IDENTITY_QUAT, type Quat, quatMultiply } from "../physics/PhysicsWorld";
 import type { Vec3 } from "../sim/MathUtil";
 import { Rng } from "../sim/Rng";
+import type { DoorDef } from "./Doors";
 
 /**
  * The movement playground: a fixed course for testing locomotion (slopes,
@@ -8,7 +9,16 @@ import { Rng } from "../sim/Rng";
  * blocks. The same data builds the physics colliders and the rendered meshes.
  */
 
-export type BlockKind = "course" | "ramp" | "step" | "wall" | "scenery";
+export type BlockKind = "course" | "ramp" | "step" | "wall" | "scenery" | "pad" | "fence";
+
+/** A launch pad's top surface (axis-aligned). Stepping onto it throws the character up. */
+export interface LaunchPad {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  topY: number;
+}
 
 export interface Block {
   /** Short label for the debug overlay and tests. */
@@ -20,8 +30,8 @@ export interface Block {
 }
 
 export const PLAYGROUND = {
-  /** Half size of the square ground slab in metres. */
-  groundHalf: 100,
+  /** Half size of the square ground slab in metres (large enough to glide over). */
+  groundHalf: 400,
   /** Where the player starts (feet), facing -Z toward the course. */
   spawn: { x: 0, y: 0.05, z: 10 } as Vec3,
   spawnYaw: 0,
@@ -33,24 +43,41 @@ export const PLAYGROUND = {
   ledgeHeights: [0.6, 1.0, 1.5] as const,
   /** Clear height inside the crouch tunnel. */
   tunnelClearance: 1.4,
+  /** Heights of the mantle wall row, metres (the last one is too tall). */
+  mantleHeights: [0.5, 0.8, 1.1, 1.5, 1.9, 2.3, 2.7] as const,
+  /** Heights of the thin hurdle fences, metres (the last one needs a mantle). */
+  fenceHeights: [0.9, 1.1, 1.4] as const,
+  /** Mesa top height and the slide ramp up to it. */
+  mesaHeight: 25,
+  mesaRampAngle: 30,
+  /** Where the training dummy stands (feet), facing the spawn. */
+  dummy: { x: 4, y: 0.05, z: 4 } as Vec3,
+  dummyYaw: Math.PI,
 } as const;
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
-/** A ramp rising toward -Z, with its low edge at z = startZ on the ground. */
-function ramp(name: string, x: number, startZ: number, angleDeg: number, width: number, length: number): Block {
+/**
+ * A ramp whose low edge is centred at (x, 0, startZ) on the ground and which
+ * rises along the look direction of `yaw` (yaw 0 = toward -Z).
+ */
+function ramp(name: string, x: number, startZ: number, angleDeg: number, width: number, length: number, yaw = 0): Block {
   const a = deg(angleDeg);
   const thickness = 0.4;
-  // Slab centre: halfway up the slope, pushed down by half the thickness along the slope normal.
-  const cy = (Math.sin(a) * length) / 2 - (Math.cos(a) * thickness) / 2;
-  const cz = startZ - (Math.cos(a) * length) / 2 - (Math.sin(a) * thickness) / 2;
+  // In the ramp's own frame (rising toward -Z): slab centre halfway up the slope,
+  // pushed down by half the thickness along the slope normal.
+  const localY = (Math.sin(a) * length) / 2 - (Math.cos(a) * thickness) / 2;
+  const localZ = -(Math.cos(a) * length) / 2 - (Math.sin(a) * thickness) / 2;
+  // Rotate the local offset by yaw about +Y.
+  const offsetX = localZ * Math.sin(yaw);
+  const offsetZ = localZ * Math.cos(yaw);
   return {
     name,
     kind: "ramp",
-    center: { x, y: cy, z: cz },
+    center: { x: x + offsetX, y: localY, z: startZ + offsetZ },
     half: { x: width / 2, y: thickness / 2, z: length / 2 },
-    // Positive rotation about X lifts the -Z end.
-    rotation: axisQuat("x", a),
+    // Pitch about X lifts the -Z end, then yaw turns the ramp.
+    rotation: quatMultiply(axisQuat("y", yaw), axisQuat("x", a)),
   };
 }
 
@@ -104,6 +131,40 @@ export function buildPlayground(seed: number): Block[] {
     blocks.push(box(`platform stairs #${i + 1}`, "step", { x: -9.6 + i * 0.8, y: top / 2, z: 14 }, { x: 0.4, y: top / 2, z: 2 }));
   }
 
+  // Mesa with a long 30 degree ramp up its east side: slides, boosted jumps, glider redeploy.
+  const mesaH = PLAYGROUND.mesaHeight;
+  blocks.push(box("mesa", "course", { x: -66, y: mesaH / 2, z: -40 }, { x: 10, y: mesaH / 2, z: 10 }));
+  const rampLength = mesaH / Math.sin(deg(PLAYGROUND.mesaRampAngle));
+  const rampStartX = -56 + Math.cos(deg(PLAYGROUND.mesaRampAngle)) * rampLength;
+  blocks.push({ ...ramp("mesa ramp", rampStartX, -40, PLAYGROUND.mesaRampAngle, 6, rampLength, Math.PI / 2), name: "mesa ramp" });
+
+  // Mantle wall row behind the spawn (front faces at z = 24.5).
+  PLAYGROUND.mantleHeights.forEach((height, i) => {
+    blocks.push(box(`mantle ${height} m`, "course", { x: -12 + i * 4, y: height / 2, z: 26 }, { x: 1.5, y: height / 2, z: 1.5 }));
+  });
+
+  // Thin fences for hurdles (z = 30).
+  PLAYGROUND.fenceHeights.forEach((height, i) => {
+    blocks.push(box(`fence ${height} m`, "fence", { x: 18 + i * 5, y: height / 2, z: 30 }, { x: 1.5, y: height / 2, z: 0.1 }));
+  });
+
+  // Launch pad near the spawn.
+  blocks.push(box("launch pad", "pad", { x: -6, y: 0.075, z: 19 }, { x: 1.5, y: 0.075, z: 1.5 }));
+
+  // A small hut with two doors (south and west walls), open roof.
+  const hut = { minX: 34, maxX: 42, minZ: 24, maxZ: 32, height: 3, t: 0.15 };
+  const wallH = hut.height / 2;
+  // South wall (z = 24) with a 1.2 m door gap at x 37.4..38.6.
+  blocks.push(box("hut south wall a", "wall", { x: 35.7, y: wallH, z: hut.minZ }, { x: 1.7, y: wallH, z: hut.t }));
+  blocks.push(box("hut south wall b", "wall", { x: 40.3, y: wallH, z: hut.minZ }, { x: 1.7, y: wallH, z: hut.t }));
+  blocks.push(box("hut south header", "wall", { x: 38, y: 2.6, z: hut.minZ }, { x: 0.6, y: 0.4, z: hut.t }));
+  // West wall (x = 34) with a gap at z 27.4..28.6.
+  blocks.push(box("hut west wall a", "wall", { x: hut.minX, y: wallH, z: 25.7 }, { x: hut.t, y: wallH, z: 1.7 }));
+  blocks.push(box("hut west wall b", "wall", { x: hut.minX, y: wallH, z: 30.3 }, { x: hut.t, y: wallH, z: 1.7 }));
+  blocks.push(box("hut west header", "wall", { x: hut.minX, y: 2.6, z: 28 }, { x: hut.t, y: 0.4, z: 0.6 }));
+  blocks.push(box("hut north wall", "wall", { x: 38, y: wallH, z: hut.maxZ }, { x: 4 + hut.t, y: wallH, z: hut.t }));
+  blocks.push(box("hut east wall", "wall", { x: hut.maxX, y: wallH, z: 28 }, { x: hut.t, y: wallH, z: 4 }));
+
   // Seeded scenery ring well away from the course.
   const rng = new Rng(seed).fork("playground-scenery");
   for (let i = 0; i < 14; i++) {
@@ -115,6 +176,27 @@ export function buildPlayground(seed: number): Block[] {
     );
   }
   return blocks;
+}
+
+/** The hut's two doors (hinge at floor level, panel along local +X). */
+export function playgroundDoors(): DoorDef[] {
+  return [
+    { hingeX: 37.4, hingeY: 0, hingeZ: 24, width: 1.2, height: 2.2, thickness: 0.1, closedYaw: 0 },
+    { hingeX: 34, hingeY: 0, hingeZ: 28.6, width: 1.2, height: 2.2, thickness: 0.1, closedYaw: Math.PI / 2 },
+  ];
+}
+
+/** Launch pads of the playground (top surfaces of the "pad" blocks). */
+export function playgroundLaunchPads(blocks: readonly Block[]): LaunchPad[] {
+  return blocks
+    .filter((block) => block.kind === "pad")
+    .map((block) => ({
+      minX: block.center.x - block.half.x,
+      maxX: block.center.x + block.half.x,
+      minZ: block.center.z - block.half.z,
+      maxZ: block.center.z + block.half.z,
+      topY: block.center.y + block.half.y,
+    }));
 }
 
 /** Finds a block by name (tests and debug tools). */

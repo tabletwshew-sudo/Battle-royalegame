@@ -37,6 +37,8 @@ Where `[SPEC]` and `[BG]` disagree, `[SPEC]` is the default and the `[BG]` value
 | Glider redeploy | after > 6 m fall at > 12 m/s; 1 s cooldown; glide landings take no fall damage | [SPEC] (2026 overhaul) |
 | Fall damage | `clamp((v − 14)·3.2, 0, 100)`; modern non-lethal: a lethal fall leaves 1 HP, clears shield and overshield, 1.5 s "splat" | [SPEC]; [BG] classic mode is lethal at roughly 9+ m |
 
+**M3 implementation notes** (design defaults chosen where the notes said UNKNOWN; all in `MovementConfig.ts`): slides start at max(current, 6 m/s), overspeed decel 9 m/s^2 keeps slide/launch momentum while running; boosted jump adds up to +3 m/s lift scaled by downhill excess speed; ledge probe reach grows by 0.06 s of travel; airborne grabs reach 0.25-1.1 m above the feet; roll window 0.2 s; glider A/D offset the heading by up to 35 deg; launch pads throw at 95 m/s (~180 m apex) and turn into a skydive at the apex.
+
 ## Health / Shield
 | Tunable | Default | Source / note |
 |---|---|---|

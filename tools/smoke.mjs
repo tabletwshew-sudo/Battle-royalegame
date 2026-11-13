@@ -134,6 +134,22 @@ try {
   const look = await page.evaluate(() => window.__DRIFTGLASS__.player());
   check(Math.abs(look.yaw - 1.2) < 1e-6 && Math.abs(look.pitch + 0.2) < 1e-6, "view angles reach the simulation");
 
+  // F4: probe view + tuning panel (lil-gui loads on demand).
+  await page.keyboard.press("F4");
+  await sleep(800);
+  check((await page.evaluate(() => document.querySelector(".lil-gui") !== null)), "F4 opens the tuning panel");
+  check((await overlayText()).includes("F4 probe:") && !(await overlayText()).includes("F4 probe: off"), "F4 enables the ledge probe view");
+  await page.keyboard.press("F4");
+
+  // F9: the movement self-test suite must pass in the browser exactly as in Node.
+  await page.keyboard.press("F9");
+  await page.waitForFunction(() => window.__DRIFTGLASS__.selfTest() !== null, null, { timeout: 60000 });
+  const selfTest = await page.evaluate(() => window.__DRIFTGLASS__.selfTest());
+  console.log(`INFO  F9 self-test: ${selfTest.passed}/${selfTest.total}`);
+  for (const failure of selfTest.failures) console.log(`INFO    failed: ${failure}`);
+  check(selfTest.passed === selfTest.total && selfTest.total > 0, "F9 movement self-test passes in the browser");
+  await page.keyboard.press("F9");
+
   await sleep(1500);
   if (shot) await page.screenshot({ path: shot });
   const alert = await page.evaluate(() => {

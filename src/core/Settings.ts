@@ -1,3 +1,4 @@
+import { SPRINT_MODES, type SprintMode } from "./Input";
 import { DEFAULT_QUALITY, isQualityName, type QualityName } from "./Quality";
 
 /**
@@ -17,6 +18,7 @@ export interface Settings {
   invertY: boolean;
   /** Whether the F3 stats overlay is shown. */
   showStats: boolean;
+  sprintMode: SprintMode;
 }
 
 export const SETTINGS_LIMITS = {
@@ -32,6 +34,7 @@ export function defaultSettings(): Settings {
     mouseSensitivity: 1,
     invertY: false,
     showStats: false,
+    sprintMode: "hold",
   };
 }
 
@@ -64,6 +67,7 @@ export function migrateSettings(raw: unknown): Settings {
     ),
     invertY: typeof data["invertY"] === "boolean" ? data["invertY"] : base.invertY,
     showStats: typeof data["showStats"] === "boolean" ? data["showStats"] : base.showStats,
+    sprintMode: SPRINT_MODES.includes(data["sprintMode"] as SprintMode) ? (data["sprintMode"] as SprintMode) : base.sprintMode,
   };
 }
 

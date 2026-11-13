@@ -25,6 +25,13 @@ export interface CameraConfig {
   probeRadius: number;
   /** Shortest arm allowed when the camera is squeezed against a wall. */
   minDistance: number;
+  /** Extra arm length and pivot height while skydiving and gliding (wider view). */
+  skydiveArmExtra: number;
+  skydiveHeightExtra: number;
+  glideArmExtra: number;
+  glideHeightExtra: number;
+  /** FOV multiplier at full sprint. */
+  sprintFovScale: number;
 }
 
 export function defaultCameraConfig(): CameraConfig {
@@ -39,6 +46,11 @@ export function defaultCameraConfig(): CameraConfig {
     adsFovScale: 0.75,
     probeRadius: 0.2,
     minDistance: 0.3,
+    skydiveArmExtra: 3.2,
+    skydiveHeightExtra: 0.9,
+    glideArmExtra: 2.4,
+    glideHeightExtra: 1.3,
+    sprintFovScale: 1.08,
   };
 }
 
@@ -56,6 +68,9 @@ export interface CameraSubject {
   adsBlend: number;
   /** -1 left shoulder .. +1 right shoulder. */
   shoulderBlend: number;
+  /** Extra arm length and pivot height (skydive/glide framing), metres. Default 0. */
+  armExtra?: number;
+  heightExtra?: number;
 }
 
 export interface CameraPose {
@@ -107,9 +122,9 @@ export function computeCameraPose(
   const crouch = clamp(subject.crouchBlend, 0, 1);
   const hipHeight = lerp(config.pivotHeight, config.crouchPivotHeight, crouch);
   const adsHeight = config.adsPivotHeight - (config.pivotHeight - hipHeight);
-  const height = lerp(hipHeight, adsHeight, ads);
+  const height = lerp(hipHeight, adsHeight, ads) + (subject.heightExtra ?? 0);
   const side = lerp(config.shoulderOffset, config.adsShoulderOffset, ads) * clamp(subject.shoulderBlend, -1, 1);
-  const ideal = lerp(config.distance, config.adsDistance, ads);
+  const ideal = lerp(config.distance, config.adsDistance, ads) + (subject.armExtra ?? 0);
 
   const forward = lookDirection(subject.yaw, subject.pitch, out.forward);
   // Right vector on the horizontal plane.

@@ -66,8 +66,13 @@ export interface DeterminismReport {
  * Full check for one seed: two fresh runs must match, and a run restored from
  * a mid-way snapshot must match the remainder of the original run.
  */
-export function checkDeterminism<S>(create: () => Simulation<S>, seed: number, ticks: number): DeterminismReport {
-  const script = makeInputScript(seed, ticks);
+export function checkDeterminism<S>(
+  create: () => Simulation<S>,
+  seed: number,
+  ticks: number,
+  script: readonly InputFrame[] = makeInputScript(seed, ticks),
+): DeterminismReport {
+  ticks = script.length;
   const half = Math.floor(ticks / 2);
 
   const first = create();

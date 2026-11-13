@@ -214,7 +214,8 @@ describe("PlayerController: jumping", () => {
 
   it("puts the player back at spawn after falling out of the world", () => {
     newSim();
-    sim.player.teleport(150, 0, 150);
+    // Beyond the edge of the ground slab.
+    sim.player.teleport(PLAYGROUND.groundHalf + 50, 0, 0);
     run(200, idle);
     const respawned = sim.drainEvents().some((e) => e.type === "respawn");
     expect(respawned).toBe(true);

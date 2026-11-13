@@ -40,4 +40,6 @@ Browser Zero Build battle royale (private school project). *Unofficial fan proje
 - `SimEventMap` (Events.ts) is the single list of sim events; add payload types there.
 - Characters move BEFORE `PhysicsWorld.step()` each tick. After `PhysicsWorld.restoreSnapshot`, every `PlayerController.loadState` must run (it rebuilds the Rapier character controller).
 - Movement debugging: write a small `.mts` probe under the scratchpad and run it with `npx --no-install tsx` (top-level await needs `.mts`). Raw-Rapier probes caught every M2 movement bug.
-- Headless Chromium can't drive pointer-lock mouse look; use `window.__DRIFTGLASS__.look(yaw, pitch)` in browser scripts.
+- Headless Chromium can't drive pointer-lock mouse look; use `window.__DRIFTGLASS__.look(yaw, pitch)` in browser scripts (`teleport`, `skydive` also exist for visual checks).
+- Movement behaviour is pinned by `src/shared/sim/SelfTest.ts` (29 cases, run by `npm test` and by F9 in the browser; `npm run smoke` requires 29/29). Add a case for every new movement rule.
+- `PlayerState` is hashed field by field automatically (`hashValue`); new fields must be numbers/booleans/strings or plain objects/arrays of them, and `clonePlayerState` must deep-copy any new nested object.

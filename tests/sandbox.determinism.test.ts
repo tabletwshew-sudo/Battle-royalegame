@@ -62,6 +62,34 @@ describe("Determinism harness (SandboxSim with player + Rapier)", () => {
     }
   });
 
+  it("stays identical through launch pad, skydive, glide, cut and landing with a mid-air snapshot", () => {
+    // Walk onto the launch pad (spawn faces -Z; the pad is behind-left at x -6, z 19).
+    const script: InputFrame[] = [];
+    const push = (ticks: number, frame: InputFrame): void => {
+      for (let i = 0; i < ticks; i++) script.push(frame);
+    };
+    const toPad = Math.atan2(-(-6 - 0), -(19 - 10));
+    push(20, { moveX: 0, moveZ: 0, yaw: toPad, pitch: 0, buttons: 0 });
+    push(110, { moveX: 0, moveZ: 1, yaw: toPad, pitch: 0, buttons: 0 });
+    push(500, { moveX: 0.3, moveZ: 1, yaw: 0.4, pitch: -0.6, buttons: 0 });
+    push(1, { moveX: 0, moveZ: 0, yaw: 0.4, pitch: 0, buttons: Button.Jump });
+    push(300, { moveX: -0.5, moveZ: 0.5, yaw: 0.9, pitch: 0, buttons: 0 });
+    push(1, { moveX: 0, moveZ: 0, yaw: 0.9, pitch: 0, buttons: Button.Jump });
+    push(400, { moveX: 0, moveZ: 1, yaw: 0.9, pitch: 0, buttons: 0 });
+    const report = checkDeterminism(create(9), 9, script.length, script);
+    expect(report.rerunDivergence).toBe(-1);
+    expect(report.restoreDivergence).toBe(-1);
+    // Sanity: the script really went through the air modes.
+    const sim = create(9)();
+    const seen = new Set<string>();
+    for (const frame of script) {
+      sim.step(frame);
+      seen.add(sim.player.state.mode);
+    }
+    sim.dispose();
+    expect([...seen].sort()).toEqual(expect.arrayContaining(["glide", "skydive", "walk"]));
+  });
+
   it("produces different worlds for different seeds", () => {
     const script = makeInputScript(1, 120);
     const a = create(1)();

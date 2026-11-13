@@ -1,15 +1,27 @@
 import type RAPIER from "@dimforge/rapier3d-compat";
+import { defaultVitalsConfig, type VitalsConfig } from "../combat/Vitals";
 import { makeRayHit, PhysicsWorld, QUERY_WORLD_AND_PROPS } from "../physics/PhysicsWorld";
-import { type Block, buildPlayground, CRATE_AREA, PLAYGROUND } from "../world/Playground";
+import { defaultRules, type RulesConfig } from "../rules/RulesConfig";
+import { DoorSystem, type DoorState } from "../world/Doors";
+import {
+  type Block,
+  buildPlayground,
+  CRATE_AREA,
+  type LaunchPad,
+  PLAYGROUND,
+  playgroundDoors,
+  playgroundLaunchPads,
+} from "../world/Playground";
 import { type CameraConfig, computeCameraPose, defaultCameraConfig, makeCameraPose } from "./CameraRig";
 import { EventQueue, type SimEvent } from "./Events";
 import { StateHasher } from "./Hash";
 import { Button, type InputFrame, wasPressed } from "./InputFrame";
 import type { Vec3 } from "./MathUtil";
 import { defaultMovementConfig, type MovementConfig } from "./MovementConfig";
-import { PlayerController, type PlayerState } from "./PlayerSim";
+import { clonePlayerState, type MovementWorld, PlayerController, type PlayerState } from "./PlayerSim";
 import { Rng, type RngState } from "./Rng";
 import type { Simulation } from "./Simulation";
+import { resolveSlideKicks } from "./SlideKick";
 
 /**
  * Engine sandbox: the movement playground (fixed course + seeded scenery),
@@ -23,6 +35,10 @@ export interface SandboxConfig {
   crateCount: number;
   movement?: MovementConfig;
   camera?: CameraConfig;
+  rules?: RulesConfig;
+  vitals?: VitalsConfig;
+  /** Adds the training dummy (default true). */
+  dummy?: boolean;
 }
 
 export const SANDBOX_DEFAULTS = {
@@ -39,15 +55,21 @@ export interface SandboxSnapshot {
   previousButtons: number;
   rng: RngState;
   bodyHandles: number[];
-  player: PlayerState;
+  players: PlayerState[];
+  doors: DoorState[];
   physics: Uint8Array;
 }
+
+/** The dummy stands still and only turns. */
+const DUMMY_INPUT: InputFrame = { moveX: 0, moveZ: 0, yaw: 0, pitch: 0, buttons: 0 };
 
 /** Floats stored per crate in the transform buffers: position xyz + quaternion xyzw. */
 export const TRANSFORM_STRIDE = 7;
 
 /** Entity id of the local player in the sandbox. */
 export const SANDBOX_PLAYER_ID = 1;
+/** Entity id of the training dummy. */
+export const SANDBOX_DUMMY_ID = 2;
 
 export class SandboxSim implements Simulation<SandboxSnapshot> {
   tick = 0;
@@ -55,9 +77,15 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
   readonly blocks: Block[];
   readonly player: PlayerController;
   /** Player state after the previous tick (render interpolation). */
-  readonly previousPlayer: PlayerState;
+  previousPlayer: PlayerState;
+  /** Training dummy: a second character that stands still (slide kick target). */
+  readonly dummy: PlayerController | null;
+  previousDummy: PlayerState | null;
   readonly movement: MovementConfig;
   readonly camera: CameraConfig;
+  readonly rules: RulesConfig;
+  readonly doors: DoorSystem;
+  readonly launchPads: LaunchPad[];
   /** Crate transforms after the latest tick and after the tick before it (for interpolation). */
   transforms: Float32Array;
   previousTransforms: Float32Array;
@@ -79,18 +107,27 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
     this.camera = config.camera ?? defaultCameraConfig();
     this.root = new Rng(this.seed);
     this.crateRng = this.root.fork("crates", 0);
+    this.rules = config.rules ?? defaultRules();
     this.physics = new PhysicsWorld(this.movement.gravity);
     this.blocks = buildPlayground(this.seed);
     for (const block of this.blocks) this.physics.addStaticBox(block.center, block.half, {}, block.rotation);
+    this.doors = new DoorSystem(this.physics, playgroundDoors());
+    this.launchPads = playgroundLaunchPads(this.blocks);
     this.spawnCrates(config.crateCount);
-    this.player = new PlayerController(
-      SANDBOX_PLAYER_ID,
-      this.physics,
-      this.movement,
-      PLAYGROUND.spawn,
-      PLAYGROUND.spawnYaw,
-    );
+    const world: MovementWorld = {
+      physics: this.physics,
+      rules: this.rules,
+      vitals: config.vitals ?? defaultVitalsConfig(),
+      doors: this.doors,
+      launchPads: this.launchPads,
+    };
+    this.player = new PlayerController(SANDBOX_PLAYER_ID, world, this.movement, PLAYGROUND.spawn, PLAYGROUND.spawnYaw);
     this.previousPlayer = this.player.saveState();
+    this.dummy =
+      config.dummy === false
+        ? null
+        : new PlayerController(SANDBOX_DUMMY_ID, world, this.movement, PLAYGROUND.dummy, PLAYGROUND.dummyYaw);
+    this.previousDummy = this.dummy?.saveState() ?? null;
     this.transforms = new Float32Array(config.crateCount * TRANSFORM_STRIDE);
     this.previousTransforms = new Float32Array(config.crateCount * TRANSFORM_STRIDE);
     this.readTransforms();
@@ -117,15 +154,33 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
     return awake;
   }
 
+  /** All characters in a fixed order (player first). */
+  get characters(): PlayerController[] {
+    return this.dummy === null ? [this.player] : [this.player, this.dummy];
+  }
+
   step(input: InputFrame): void {
     this.previousTransforms.set(this.transforms);
-    Object.assign(this.previousPlayer, this.player.state);
+    this.previousPlayer = clonePlayerState(this.player.state);
+    if (this.dummy !== null) this.previousDummy = clonePlayerState(this.dummy.state);
 
     this.player.step(input, this.tick, this.events);
-    if (wasPressed(input.buttons, this.previousButtons, Button.Fire)) this.kick();
+    if (this.dummy !== null) {
+      // The dummy only keeps facing the player.
+      const p = this.player.state;
+      const d = this.dummy.state;
+      this.dummy.step({ ...DUMMY_INPUT, yaw: Math.atan2(-(p.x - d.x), -(p.z - d.z)) }, this.tick, this.events);
+    }
+    for (const id of resolveSlideKicks(this.characters, () => false, this.tick, this.events)) {
+      // Sandbox: a knocked-out dummy simply gets back up with full vitals.
+      if (id === SANDBOX_DUMMY_ID) this.dummy?.resetVitals();
+      else if (id === SANDBOX_PLAYER_ID) this.player.resetVitals();
+    }
+    if (wasPressed(input.buttons, this.previousButtons, Button.Fire) && this.player.canUseItem) this.kick();
     if (wasPressed(input.buttons, this.previousButtons, Button.Reload)) this.respawnCrates();
     this.previousButtons = input.buttons;
 
+    this.doors.step();
     this.physics.step();
     this.readTransforms();
     this.tick++;
@@ -138,7 +193,8 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
   hash(): number {
     const hasher = new StateHasher();
     hasher.addInt(this.tick).addInt(this.generation).addInt(this.previousButtons);
-    this.player.hashInto(hasher);
+    for (const character of this.characters) character.hashInto(hasher);
+    this.doors.hashInto(hasher);
     for (const body of this.bodies) {
       const t = body.translation();
       const r = body.rotation();
@@ -157,7 +213,8 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
       previousButtons: this.previousButtons,
       rng: this.crateRng.getState(),
       bodyHandles: this.bodies.map((body) => body.handle),
-      player: this.player.saveState(),
+      players: this.characters.map((character) => character.saveState()),
+      doors: this.doors.saveStates(),
       physics: this.physics.takeSnapshot(),
     };
   }
@@ -169,14 +226,17 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
     this.crateRng = Rng.fromState(snapshot.rng);
     this.physics.restoreSnapshot(snapshot.physics);
     this.bodies = snapshot.bodyHandles.map((handle) => this.physics.world.getRigidBody(handle));
-    this.player.loadState(snapshot.player);
-    Object.assign(this.previousPlayer, snapshot.player);
+    this.characters.forEach((character, i) => character.loadState(snapshot.players[i] as PlayerState));
+    this.previousPlayer = this.player.saveState();
+    this.previousDummy = this.dummy?.saveState() ?? null;
+    this.doors.loadStates(snapshot.doors);
     this.readTransforms();
     this.previousTransforms.set(this.transforms);
     this.events.drain();
   }
 
   dispose(): void {
+    this.dummy?.dispose();
     this.player.dispose();
     this.physics.dispose();
   }

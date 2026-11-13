@@ -25,6 +25,10 @@ State machine: `Grounded{walk,crouch,sprint,slide,ads}`, `Airborne{jump,fall}`, 
 - **Glider:** forward speed and sink, with W/S trade-offs and banking. Closes automatically near the ground. **Redeploy:** after a fast, long enough fall (cliffs, towers, launch pads), the glide key reopens it, with a cooldown. Glider landings take no fall damage.
 - **Fall damage:** `clamp((impact − 14) · 3.2, 0, 100)`. Modern rule (default, unranked): a would-be lethal fall leaves 1 HP, clears shield and overshield, and plays a ~1.5 s splat during which the player cannot act. Classic rule (flag): lethal.
 - **Camera:** over-the-shoulder at offset (0.55, 1.6, −3.2), smooth shoulder swap, spring-arm collision, per-weapon ADS FOV/offset blend, sprint FOV kick, slide lowering and roll, landing dip, trauma shake, recoil kick. ADS works mid-air with every weapon and from the bus.
+- **Held item:** Q selects the Pickaxe, 1-5 the hotbar slots. The item is lowered while sprinting, mantling, hurdling, rolling, skydiving, gliding or splatted, and needs a short raise time afterwards.
+- **Doors:** Interact (E) opens or closes the nearest door; doors always swing away from whoever opens them.
+- **Launch pads:** throw the character high into the air; at the apex it skydives, and the glider opens on its own at 120 m above ground.
+- **Sprint modes** (setting): hold, toggle, or auto (always sprint when moving forward; holding the key walks).
 - **F9 self-test** runs scripted checks for every move and reports pass/fail on screen.
 
 ## 3. Combat

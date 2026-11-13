@@ -79,6 +79,16 @@ export function axisQuat(axis: "x" | "y" | "z", angle: number): Quat {
   return { x: axis === "x" ? s : 0, y: axis === "y" ? s : 0, z: axis === "z" ? s : 0, w: c };
 }
 
+/** Hamilton product a * b (apply b first, then a). */
+export function quatMultiply(a: Quat, b: Quat): Quat {
+  return {
+    x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+    y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+    z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+    w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+  };
+}
+
 export const DEFAULT_GRAVITY = 25;
 
 export class PhysicsWorld {

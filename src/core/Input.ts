@@ -44,6 +44,14 @@ export function defaultBindings(): Bindings {
   };
 }
 
+/**
+ * hold: sprint while the key is held. toggle: a press starts sprint until you
+ * stop moving forward or press it again. auto: always sprint when moving
+ * forward; holding the key walks instead.
+ */
+export type SprintMode = "hold" | "toggle" | "auto";
+export const SPRINT_MODES: readonly SprintMode[] = ["hold", "toggle", "auto"];
+
 /** Radians of rotation per pixel of mouse travel at sensitivity 1. */
 export const LOOK_RADIANS_PER_PIXEL = 0.0022;
 
@@ -61,6 +69,10 @@ export class InputState {
   invertY = false;
   /** Largest allowed |pitch| in radians (the camera may use less than MAX_PITCH). */
   pitchLimit = MAX_PITCH;
+  sprintMode: SprintMode = "hold";
+  /** Toggle-mode latch. */
+  private sprintLatched = false;
+  private sprintKeyWasDown = false;
   private readonly down = new Set<string>();
   /** Codes pressed since the last sample, kept even if already released (see sample()). */
   private readonly tapped = new Set<string>();
@@ -95,6 +107,7 @@ export class InputState {
   releaseAll(): void {
     this.down.clear();
     this.tapped.clear();
+    this.sprintLatched = false;
   }
 
   isCodeDown(code: string): boolean {
@@ -119,8 +132,26 @@ export class InputState {
     for (const name of Object.keys(b.buttons) as ButtonName[]) {
       if (this.anyDown(b.buttons[name])) buttons |= Button[name];
     }
+    buttons = this.applySprintMode(buttons, moveZ);
     this.tapped.clear();
     return { moveX, moveZ, yaw: this.yaw, pitch: this.pitch, buttons };
+  }
+
+  /** Turns the raw sprint key state into the Sprint bit for the chosen sprint mode. */
+  private applySprintMode(buttons: number, moveZ: number): number {
+    const keyDown = (buttons & Button.Sprint) !== 0;
+    const pressed = keyDown && !this.sprintKeyWasDown;
+    this.sprintKeyWasDown = keyDown;
+    const forward = moveZ > 0;
+    let sprint = keyDown;
+    if (this.sprintMode === "toggle") {
+      if (pressed) this.sprintLatched = !this.sprintLatched;
+      if (!forward || (buttons & Button.Crouch) !== 0) this.sprintLatched = false;
+      sprint = this.sprintLatched;
+    } else if (this.sprintMode === "auto") {
+      sprint = forward && !keyDown;
+    }
+    return sprint ? buttons | Button.Sprint : buttons & ~Button.Sprint;
   }
 
   private anyDown(codes: readonly string[]): boolean {

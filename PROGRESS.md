@@ -6,7 +6,7 @@ Legend: [x] done · [ ] not started · [~] in progress
 - [x] **M0 Research & spec**: references logged, mechanics notes, game spec, scaffold, docs, pinned versions
 - [x] **M1 Core engine**: renderer factory (WebGPU + WebGL2), fixed loop, input, Rapier world, shared Rng/Events/Rules, debug overlay, determinism harness
 - [x] **M2 Movement v1**: character controller, walk/jump/crouch, third-person camera + spring arm + ADS, procedural rig
-- [ ] M3 Zero Build locomotion: sprint/stamina, slide, mantle/hurdle/vault, shoulder bash, roll landing, skydive, glider, redeploy, fall damage, F9 self-test
+- [x] **M3 Zero Build locomotion**: sprint/stamina, slide, mantle/hurdle/vault, shoulder bash, roll landing, skydive, glider, redeploy, fall damage, F9 self-test
 - [ ] M4 Island + graphics: heightmap/biomes/POIs, terrain, foliage, water, sky, shadows, materials, post stack, quality presets, particles
 - [ ] M5 Combat core: layered health/shield/overshield, hitboxes, hitscan + bloom + recoil, projectiles, weapon data, inventory, weapon views, training range, balance report
 - [ ] M6 Loot & economy: chests, floor loot, consumables, pocket items, destructibles, benches, vending, scrap, starting loadout
@@ -57,6 +57,17 @@ Flags consumed in M1: `?seed=`, `?renderer=webgl`, `?quality=`. The others are p
 - [x] Movement playground course: ramps 20/35/48/55 deg, steps 0.3/0.45/0.6 m, ledges, crouch tunnel, camera walls, platform
 - [x] 93 tests (34 new movement/camera tests), typecheck x2, markers, build, smoke (WebGL2) green; screenshots checked for idle, run, strafe, crouch, jump, ADS, camera against walls
 
+## M3 checklist
+- [x] Tactical sprint: stamina drain/regen/delay/start threshold/lockout, holster + raise delay, sprint jump, Pickaxe infinite sprint, sprint modes hold/toggle/auto (setting)
+- [x] Slide: entry from sprint/run, flat decay, downhill acceleration (cap 20), uphill decay, steering, slide jump x1.15, boosted downhill jump, slide -> sprint chain keeps momentum, slide-on-landing, slide kick (rule flag, dummy target)
+- [x] Mantle / hurdle: ledge probe (wall rays, top ray, hurdle far-edge search, clearance casts), mantle 0.5-2.3 m with height-scaled duration, airborne ledge grab (stops the fall), hurdle <= 1.1 m keeping speed, item raise delay, input lock
+- [x] Doors: kinematic hinged doors, sprint/slide shoulder bash (one per sprint), Interact toggle
+- [x] Roll landing, fall damage formula, modern non-lethal splat, classic lethal rule
+- [x] Launch pad, skydive (steer, dive), glider (auto-deploy 120 m, W/S trade-offs, look-follow heading + A/D bank, auto-close), glider cut, redeploy rule + cooldown
+- [x] Vitals (overshield/shield/health layers, regen) for fall damage and slide kicks
+- [x] Client: per-mode procedural poses, glider + pickaxe models, sprint FOV kick, slide roll, skydive/glide framing, HUD vitals + energy bar + prompts + altitude, door view, F4 probe view + lil-gui tuning, F9 self-test panel
+- [x] 29-case movement self-test (vitest + F9 in the browser: 29/29 in both), 133 tests, determinism incl. a scripted launch/skydive/glide snapshot run, smoke green on WebGL2 and on the WebGPU-fallback path
+
 ## Known issues
 - **WebGPU not verified on screen.** The container's headless Chromium initializes WebGPU and compiles pipelines but cannot present frames (no swap-chain image support), so it drops the device. The game then switches to WebGL2 by itself. A WebGPU frame still needs to be checked once on a real GPU browser.
 - **Reference sites unreachable.** The session network policy blocks every web host (`ENOTFOUND`). MECHANICS_NOTES values are `[SPEC]`/`[BG]`, not verified against sources. To fix: allow the hosts in the environment network settings, re-run the fetch pass, and reconcile the notes. Only defaults would change.
@@ -65,4 +76,4 @@ Flags consumed in M1: `?seed=`, `?renderer=webgl`, `?quality=`. The others are p
 - Headless Chromium cannot produce pointer-lock mouse movement, so mouse look is verified through the debug `look()` control and unit tests, not a real mouse. Check mouse feel once in a desktop browser.
 
 ## Next
-**M3 Zero Build locomotion.** Extend `MovementConfig` / `PlayerController` with tactical sprint + stamina (holster flag, pickaxe infinite sprint), slide (slope acceleration, steering, slide-jump, chain into sprint, slide kick flag), mantle / hurdle / vault (ledge probe: chest ray, normal check, down ray, clearance cast; bezier path; weapon raise delay), shoulder-bash doors (rotating door props), roll landing, skydive / glider / redeploy / glider cut, fall damage (classic + modern splat), camera sprint FOV kick and slide camera, and the F9 self-test panel. Add course pieces: long downhill slope, mantle ledges 0.5-2.3 m, hurdles <= 1.1 m, doors, a tall tower and a launch cliff for redeploy.
+**M4 Island + graphics.** Island data (seeded heightmap ~2.4 km, biomes, the 11 POI anchors from `names.ts`), chunked terrain with LOD and a Rapier heightfield collider, triplanar/splat terrain material (TSL), instanced wind-animated foliage and rocks, water with foam, sky dome + time of day, sun with CSMShadowNode, stylized cel/rim materials, post stack via `RenderPipeline` (ACES, bloom, GTAO, vignette), quality presets extended (shadows, post, foliage density) + dynamic resolution, and the GPU/CPU particle system. Keep the movement playground reachable (`?scene=playground`) for movement tests; put cliffs and launch spots on the island for glider redeploys.

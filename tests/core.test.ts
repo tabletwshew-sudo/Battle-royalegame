@@ -175,3 +175,50 @@ describe("Settings", () => {
     expect(new SettingsStore(storage).value).toEqual(defaultSettings());
   });
 });
+
+describe("Sprint modes", () => {
+  it("hold: sprint only while the key is down", () => {
+    const input = new InputState();
+    input.setCode("KeyW", true);
+    input.setCode("ShiftLeft", true);
+    expect(input.sample().buttons & Button.Sprint).toBe(Button.Sprint);
+    input.setCode("ShiftLeft", false);
+    expect(input.sample().buttons & Button.Sprint).toBe(0);
+  });
+
+  it("toggle: a press latches sprint until forward stops or it is pressed again", () => {
+    const input = new InputState();
+    input.sprintMode = "toggle";
+    input.setCode("KeyW", true);
+    input.setCode("ShiftLeft", true);
+    expect(input.sample().buttons & Button.Sprint).toBe(Button.Sprint);
+    input.setCode("ShiftLeft", false);
+    expect(input.sample().buttons & Button.Sprint).toBe(Button.Sprint);
+    input.setCode("ShiftLeft", true);
+    expect(input.sample().buttons & Button.Sprint).toBe(0);
+    input.setCode("ShiftLeft", false);
+    input.sample();
+    input.setCode("ShiftLeft", true);
+    expect(input.sample().buttons & Button.Sprint).toBe(Button.Sprint);
+    input.setCode("ShiftLeft", false);
+    input.setCode("KeyW", false);
+    expect(input.sample().buttons & Button.Sprint).toBe(0);
+    input.setCode("KeyW", true);
+    expect(input.sample().buttons & Button.Sprint).toBe(0);
+  });
+
+  it("auto: sprint whenever moving forward; holding the key walks", () => {
+    const input = new InputState();
+    input.sprintMode = "auto";
+    expect(input.sample().buttons & Button.Sprint).toBe(0);
+    input.setCode("KeyW", true);
+    expect(input.sample().buttons & Button.Sprint).toBe(Button.Sprint);
+    input.setCode("ShiftLeft", true);
+    expect(input.sample().buttons & Button.Sprint).toBe(0);
+  });
+
+  it("persists the sprint mode in settings", () => {
+    expect(migrateSettings({ version: 1, sprintMode: "toggle" }).sprintMode).toBe("toggle");
+    expect(migrateSettings({ version: 1, sprintMode: "sideways" }).sprintMode).toBe("hold");
+  });
+});

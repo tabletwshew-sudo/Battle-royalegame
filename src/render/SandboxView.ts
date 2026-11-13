@@ -40,6 +40,8 @@ const BLOCK_COLORS: Record<BlockKind, number> = {
   step: 0xd9c49b,
   wall: 0x2f5560,
   scenery: 0x1d3a43,
+  pad: 0x3fd0c9,
+  fence: 0xc96f3b,
 };
 
 const CRATE_COLORS = [PALETTE.sand, PALETTE.orange, PALETTE.violet, 0x4cc9b0] as const;
