@@ -1,0 +1,38 @@
+{
+  "name": "driftglass",
+  "version": "0.0.1",
+  "private": true,
+  "description": "DRIFTGLASS: browser zero-build battle royale (unofficial fan school project, not affiliated with Epic Games)",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:shared": "tsc -p tsconfig.shared.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint:markers": "node tools/check-markers.mjs",
+    "check": "npm run typecheck && npm run typecheck:shared && npm test && npm run lint:markers"
+  },
+  "dependencies": {
+    "@colyseus/core": "0.18.23",
+    "@colyseus/schema": "5.0.42",
+    "@colyseus/sdk": "0.18.6",
+    "@colyseus/ws-transport": "0.18.4",
+    "@dimforge/rapier3d-compat": "0.21.0",
+    "three": "0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/three": "0.187.0",
+    "lil-gui": "0.21.0",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}
