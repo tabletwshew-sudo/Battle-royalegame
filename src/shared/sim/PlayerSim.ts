@@ -26,7 +26,7 @@ import { capsuleHalfHeight, fallDamage, jumpVelocity, launchSpeedForHeight, type
  * slide, mantle, hurdle, roll, skydive, glide: as named
  * splat: face-plant after a would-be-lethal fall (modern rule); no control
  */
-export type MoveMode = "walk" | "slide" | "mantle" | "hurdle" | "roll" | "skydive" | "glide" | "splat";
+export type MoveMode = "walk" | "slide" | "mantle" | "hurdle" | "roll" | "skydive" | "glide" | "splat" | "swim";
 
 /** Hotbar slot of the harvesting tool. */
 export const PICKAXE_SLOT = 0;
@@ -147,6 +147,8 @@ export interface MovementWorld {
   vitals: VitalsConfig;
   doors: DoorSystem | null;
   launchPads: readonly LaunchPad[];
+  /** Water surface height, or null for worlds without water. */
+  waterLevel: number | null;
 }
 
 /** Converts feet position to capsule centre height offset for a total height. */
@@ -371,6 +373,9 @@ export class PlayerController {
 
     this.computeWish(input);
 
+    // Falling or walking into deep water starts a swim (no fall damage in water).
+    if (this.inDeepWater() && s.mode !== "swim" && s.mode !== "mantle" && s.mode !== "hurdle") this.startSwim();
+
     switch (s.mode) {
       case "walk":
         this.stepWalk(input, aiming);
@@ -394,11 +399,22 @@ export class PlayerController {
       case "splat":
         this.stepSplat();
         break;
+      case "swim":
+        this.stepSwim();
+        break;
     }
 
     this.updateStamina();
     const wasHolstered = s.holstered;
-    s.holstered = s.sprinting || s.mode === "mantle" || s.mode === "hurdle" || s.mode === "skydive" || s.mode === "glide" || s.mode === "roll" || s.mode === "splat";
+    s.holstered =
+      s.sprinting ||
+      s.mode === "mantle" ||
+      s.mode === "hurdle" ||
+      s.mode === "skydive" ||
+      s.mode === "glide" ||
+      s.mode === "roll" ||
+      s.mode === "splat" ||
+      s.mode === "swim";
     if (wasHolstered && !s.holstered) s.itemReadyIn = Math.max(s.itemReadyIn, c.sprintRaiseTime);
     s.crouchBlend = approach(s.crouchBlend, s.crouched ? 1 : 0, c.crouchBlendRate * dt);
     this.updateBodyYaw();
@@ -1027,7 +1043,49 @@ export class PlayerController {
       groups: QUERY_WORLD_AND_PROPS,
       exclude: this.collider,
     });
-    return hit === null ? 2000 : Math.max(0, hit.distance - 0.05);
+    let distance = hit === null ? 2000 : Math.max(0, hit.distance - 0.05);
+    // Water counts as ground for glider closing and redeploy checks.
+    const water = this.world.waterLevel;
+    if (water !== null && s.y >= water) distance = Math.min(distance, s.y - water);
+    return distance;
+  }
+
+  /** Feet are deep enough below the water surface to swim. */
+  private inDeepWater(): boolean {
+    const water = this.world.waterLevel;
+    return water !== null && this.state.y < water - this.config.swimEnterDepth;
+  }
+
+  private startSwim(): void {
+    const s = this.state;
+    const speed = this.horizontalSpeed;
+    // Entering water brakes the fall and most of the horizontal speed.
+    s.vy = Math.max(s.vy, -3);
+    if (speed > this.config.swimSpeed) {
+      s.vx *= this.config.swimSpeed / speed;
+      s.vz *= this.config.swimSpeed / speed;
+    }
+    s.sprinting = false;
+    s.launched = false;
+    s.jumping = false;
+    s.fallStartY = s.y;
+    this.setCrouched(false);
+    this.setMode("swim");
+    this.events?.push("splash", this.tick, { id: this.id, x: s.x, y: this.world.waterLevel ?? s.y, z: s.z });
+  }
+
+  /** Swimming: float at `swimDepth`, steer at swim speed, climb out onto ledges, wade out on shallow ground. */
+  private stepSwim(): void {
+    const s = this.state;
+    const c = this.config;
+    const dt = SIM_DT;
+    const water = this.world.waterLevel ?? s.y;
+    this.accelerateHorizontal(this.wishX * c.swimSpeed, this.wishZ * c.swimSpeed, 12 * dt);
+    const targetY = water - c.swimDepth;
+    s.vy = approach(s.vy, clamp((targetY - s.y) * 3, -3, 3), 20 * dt);
+    if (this.wishLength > 0.5 && this.tryTraversal(true)) return;
+    this.move(dt, false);
+    if (s.mode === "swim" && s.grounded && s.y >= targetY - 0.05) this.setMode("walk");
   }
 
   /** Casts forward at chest height; a closed door within reach is bashed open. */
@@ -1090,7 +1148,7 @@ export class PlayerController {
   private onLand(impactSpeed: number): void {
     const s = this.state;
     const c = this.config;
-    let damage = s.mode === "glide" ? 0 : fallDamage(c, impactSpeed);
+    let damage = s.mode === "glide" || s.mode === "swim" ? 0 : fallDamage(c, impactSpeed);
     let roll = false;
     let splat = false;
     if (damage > 0 && s.jumpPressAge <= c.rollWindow) {

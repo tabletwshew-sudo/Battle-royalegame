@@ -3,15 +3,9 @@ import { defaultVitalsConfig, type VitalsConfig } from "../combat/Vitals";
 import { makeRayHit, PhysicsWorld, QUERY_WORLD_AND_PROPS } from "../physics/PhysicsWorld";
 import { defaultRules, type RulesConfig } from "../rules/RulesConfig";
 import { DoorSystem, type DoorState } from "../world/Doors";
-import {
-  type Block,
-  buildPlayground,
-  CRATE_AREA,
-  type LaunchPad,
-  PLAYGROUND,
-  playgroundDoors,
-  playgroundLaunchPads,
-} from "../world/Playground";
+import { generateIsland } from "../world/Island";
+import { type Block, CRATE_AREA, type LaunchPad, PLAYGROUND, playgroundWorld } from "../world/Playground";
+import { buildStaticPhysics, type StaticWorld } from "../world/StaticWorld";
 import { type CameraConfig, computeCameraPose, defaultCameraConfig, makeCameraPose } from "./CameraRig";
 import { EventQueue, type SimEvent } from "./Events";
 import { StateHasher } from "./Hash";
@@ -24,15 +18,19 @@ import type { Simulation } from "./Simulation";
 import { resolveSlideKicks } from "./SlideKick";
 
 /**
- * Engine sandbox: the movement playground (fixed course + seeded scenery),
- * a pile of loose crates and one player character driven by InputFrames.
+ * Free-roam simulation of one player in a static world: either the movement
+ * playground (fixed course, crates, training dummy) or the island (M4).
  * It exercises the whole pipeline (input -> fixed sim -> physics -> events
  * -> interpolated render) and is the subject of the determinism harness.
  */
 
+export type SandboxWorldKind = "playground" | "island";
+
 export interface SandboxConfig {
   seed: number;
   crateCount: number;
+  /** Which static world to stand in (default: playground). */
+  world?: SandboxWorldKind;
   movement?: MovementConfig;
   camera?: CameraConfig;
   rules?: RulesConfig;
@@ -74,7 +72,11 @@ export const SANDBOX_DUMMY_ID = 2;
 export class SandboxSim implements Simulation<SandboxSnapshot> {
   tick = 0;
   readonly seed: number;
+  /** Static boxes of the world (playground course pieces, island buildings). */
   readonly blocks: Block[];
+  readonly staticWorld: StaticWorld;
+  /** Number of static colliders built from the world. */
+  readonly staticColliders: number;
   readonly player: PlayerController;
   /** Player state after the previous tick (render interpolation). */
   previousPlayer: PlayerState;
@@ -109,10 +111,11 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
     this.crateRng = this.root.fork("crates", 0);
     this.rules = config.rules ?? defaultRules();
     this.physics = new PhysicsWorld(this.movement.gravity);
-    this.blocks = buildPlayground(this.seed);
-    for (const block of this.blocks) this.physics.addStaticBox(block.center, block.half, {}, block.rotation);
-    this.doors = new DoorSystem(this.physics, playgroundDoors());
-    this.launchPads = playgroundLaunchPads(this.blocks);
+    this.staticWorld = config.world === "island" ? generateIsland(this.seed).world : playgroundWorld(this.seed);
+    this.blocks = this.staticWorld.boxes;
+    this.staticColliders = buildStaticPhysics(this.physics, this.staticWorld).colliders;
+    this.doors = new DoorSystem(this.physics, this.staticWorld.doors);
+    this.launchPads = this.staticWorld.launchPads;
     this.spawnCrates(config.crateCount);
     const world: MovementWorld = {
       physics: this.physics,
@@ -120,13 +123,16 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
       vitals: config.vitals ?? defaultVitalsConfig(),
       doors: this.doors,
       launchPads: this.launchPads,
+      waterLevel: this.staticWorld.waterLevel,
     };
-    this.player = new PlayerController(SANDBOX_PLAYER_ID, world, this.movement, PLAYGROUND.spawn, PLAYGROUND.spawnYaw);
+    const spawn = this.staticWorld.spawn;
+    this.player = new PlayerController(SANDBOX_PLAYER_ID, world, this.movement, spawn, this.staticWorld.spawnYaw);
     this.previousPlayer = this.player.saveState();
+    // The dummy stands on the course in the playground and a few metres ahead of the spawn on the island.
+    const dummyAt =
+      this.staticWorld.kind === "playground" ? PLAYGROUND.dummy : { x: spawn.x + 4, y: spawn.y + 0.5, z: spawn.z - 6 };
     this.dummy =
-      config.dummy === false
-        ? null
-        : new PlayerController(SANDBOX_DUMMY_ID, world, this.movement, PLAYGROUND.dummy, PLAYGROUND.dummyYaw);
+      config.dummy === false ? null : new PlayerController(SANDBOX_DUMMY_ID, world, this.movement, dummyAt, PLAYGROUND.dummyYaw);
     this.previousDummy = this.dummy?.saveState() ?? null;
     this.transforms = new Float32Array(config.crateCount * TRANSFORM_STRIDE);
     this.previousTransforms = new Float32Array(config.crateCount * TRANSFORM_STRIDE);
@@ -251,7 +257,12 @@ export class SandboxSim implements Simulation<SandboxSnapshot> {
   private randomCratePosition(): Vec3 {
     const rng = this.crateRng;
     const spread = CRATE_AREA.spread;
-    return { x: CRATE_AREA.x + rng.range(-spread, spread), y: rng.range(2, 26), z: CRATE_AREA.z + rng.range(-spread, spread) };
+    // Island crates drop near the spawn; playground crates on their pad.
+    const center =
+      this.staticWorld.kind === "playground"
+        ? { x: CRATE_AREA.x, y: 0, z: CRATE_AREA.z }
+        : { x: this.staticWorld.spawn.x + 12, y: this.staticWorld.spawn.y, z: this.staticWorld.spawn.z - 10 };
+    return { x: center.x + rng.range(-spread, spread), y: center.y + rng.range(2, 26), z: center.z + rng.range(-spread, spread) };
   }
 
   /** Pushes every crate near the point aimed at through the crosshair (camera ray). */

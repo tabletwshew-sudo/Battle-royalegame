@@ -2,6 +2,8 @@ import { axisQuat, IDENTITY_QUAT, type Quat, quatMultiply } from "../physics/Phy
 import type { Vec3 } from "../sim/MathUtil";
 import { Rng } from "../sim/Rng";
 import type { DoorDef } from "./Doors";
+import { Builder, buildHouse, buildTower, emptyBuildOutput } from "./Buildings";
+import type { StaticWorld } from "./StaticWorld";
 
 /**
  * The movement playground: a fixed course for testing locomotion (slopes,
@@ -9,7 +11,7 @@ import type { DoorDef } from "./Doors";
  * blocks. The same data builds the physics colliders and the rendered meshes.
  */
 
-export type BlockKind = "course" | "ramp" | "step" | "wall" | "scenery" | "pad" | "fence";
+export type BlockKind = "course" | "ramp" | "step" | "wall" | "scenery" | "pad" | "fence" | "structure";
 
 /** A launch pad's top surface (axis-aligned). Stepping onto it throws the character up. */
 export interface LaunchPad {
@@ -27,6 +29,10 @@ export interface Block {
   center: Vec3;
   half: Vec3;
   rotation: Quat;
+  /** Render colour (island pieces carry their own; playground pieces use their kind's colour). */
+  color?: number;
+  /** Render batch (island: POI id or "wild"). */
+  group?: string;
 }
 
 export const PLAYGROUND = {
@@ -53,6 +59,9 @@ export const PLAYGROUND = {
   /** Where the training dummy stands (feet), facing the spawn. */
   dummy: { x: 4, y: 0.05, z: 4 } as Vec3,
   dummyYaw: Math.PI,
+  /** Sample island buildings (same generators as the island) for walkability tests. */
+  sampleTower: { x: -45, y: 0, z: 45, floors: 5 },
+  sampleHouse: { x: -28, y: 0, z: 48 },
 } as const;
 
 const deg = (d: number): number => (d * Math.PI) / 180;
@@ -208,3 +217,30 @@ export function findBlock(blocks: readonly Block[], name: string): Block {
 
 /** Centre of the crate pile (north-east, clear of the course). */
 export const CRATE_AREA = { x: 24, z: -24, spread: 7 } as const;
+
+/** The playground as a StaticWorld (flat ground slab, no terrain or water) with two sample buildings. */
+export function playgroundWorld(seed: number): StaticWorld {
+  const boxes = buildPlayground(seed);
+  const samples = emptyBuildOutput();
+  const rng = new Rng(seed).fork("playground-buildings");
+  const t = PLAYGROUND.sampleTower;
+  buildTower(new Builder(samples, { x: t.x, y: t.y, z: t.z }, 0, "samples"), rng, t.floors);
+  const h = PLAYGROUND.sampleHouse;
+  buildHouse(new Builder(samples, { x: h.x, y: h.y, z: h.z }, 0, "samples"), rng, { floors: 2, pitched: true });
+  boxes.push(...samples.boxes);
+  return {
+    kind: "playground",
+    boxes,
+    cylinders: samples.cylinders,
+    terrain: null,
+    trees: [],
+    rockPrototypes: [],
+    rocks: [],
+    bushes: [],
+    doors: [...playgroundDoors(), ...samples.doors],
+    launchPads: playgroundLaunchPads(boxes),
+    waterLevel: null,
+    spawn: PLAYGROUND.spawn,
+    spawnYaw: PLAYGROUND.spawnYaw,
+  };
+}

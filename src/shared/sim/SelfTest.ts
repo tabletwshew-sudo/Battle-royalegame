@@ -127,6 +127,20 @@ function drop(bench: Bench, height: number, rollTicksBefore = -1): Extract<SimEv
   return bench.events("land")[0];
 }
 
+/**
+ * Walks (optionally sprinting) toward a point, steering the look yaw at it
+ * every tick. Returns the ticks used, or -1 if it did not get within 0.35 m.
+ */
+function walkTo(bench: Bench, x: number, z: number, maxTicks = 600, buttons = 0): number {
+  for (let i = 0; i < maxTicks; i++) {
+    const dx = x - bench.p.x;
+    const dz = z - bench.p.z;
+    if (Math.hypot(dx, dz) < 0.35) return i;
+    bench.tick(frame(1, Math.atan2(-dx, -dz), buttons));
+  }
+  return -1;
+}
+
 type Case = { name: string; run: (bench: Bench) => string; rules?: Partial<RulesConfig>; dummy?: boolean };
 
 const CASES: Case[] = [
@@ -575,6 +589,45 @@ const CASES: Case[] = [
       b.runUntil(600, frame(1, FACE_MINUS_X), () => b.events("land").length > 0);
       expect((b.events("land")[0]?.damage ?? -1) === 0, "landing hurt");
       return `opened after ${f2(PLAYGROUND.mesaHeight - b.p.y)} m drop`;
+    },
+  },
+  {
+    name: "Island house: open the door, climb the stairs to the upper floor",
+    run: (b) => {
+      const h = PLAYGROUND.sampleHouse;
+      b.place(h.x, 0.05, h.z - 8, FACE_PLUS_Z);
+      expect(walkTo(b, h.x, h.z - 5.1) >= 0, "could not reach the front door");
+      b.tick(frame(0, FACE_PLUS_Z, Button.Interact));
+      b.run(30, frame(0, FACE_PLUS_Z));
+      expect(b.events("door").some((e) => e.action === "open"), "front door did not open");
+      expect(walkTo(b, h.x, h.z - 2) >= 0, "could not enter the house");
+      expect(walkTo(b, h.x + 4.15, h.z - 0.7) >= 0, "could not reach the stairs");
+      expect(walkTo(b, h.x + 4.15, h.z + 3.35) >= 0, "stuck on the stairs");
+      near(b.p.y, 3.35, 0.06, "upper floor height");
+      expect(walkTo(b, h.x + 1.5, h.z + 3.0) >= 0, "could not step onto the upper floor");
+      near(b.p.y, 3.35, 0.06, "still upstairs");
+      return `upper floor at ${f2(b.p.y)} m`;
+    },
+  },
+  {
+    name: "Island tower: switchback stairs reach every floor and the roof",
+    run: (b) => {
+      const t = PLAYGROUND.sampleTower;
+      b.place(t.x, 0.05, t.z - 9, FACE_PLUS_Z);
+      expect(walkTo(b, t.x, t.z - 4) >= 0, "could not enter through the front opening");
+      const floors: string[] = [];
+      for (let f = 0; f < t.floors; f++) {
+        const even = f % 2 === 0;
+        const laneX = t.x + (even ? 3.9 : 5.1);
+        const start = t.z + (even ? -2.3 : 2.3);
+        const end = t.z + (even ? 2.4 : -2.4);
+        expect(walkTo(b, laneX, start) >= 0, `floor ${f}: could not reach the stairs`);
+        expect(walkTo(b, laneX, end) >= 0, `floor ${f}: stuck on the flight`);
+        const expected = 0.15 + (f + 1) * 3.4;
+        near(b.p.y, expected, 0.06, `height after flight ${f + 1}`);
+        floors.push(b.p.y.toFixed(1));
+      }
+      return `floors ${floors.join(" / ")} m (last = roof)`;
     },
   },
   {

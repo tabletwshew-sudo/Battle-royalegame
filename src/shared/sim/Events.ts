@@ -32,6 +32,8 @@ export interface SimEventMap {
   gliderOpen: { id: number; redeploy: boolean };
   gliderClose: { id: number; cut: boolean };
   slideKick: { attacker: number; target: number; damage: number };
+  /** A character fell or walked into deep water (start of a swim). */
+  splash: { id: number; x: number; y: number; z: number };
   /** The held slot changed (0 = Pickaxe, 1-5 = hotbar). */
   equip: { id: number; slot: number };
   /** Sandbox: a radial impulse was applied at a point. */

@@ -42,6 +42,7 @@ const BLOCK_COLORS: Record<BlockKind, number> = {
   scenery: 0x1d3a43,
   pad: 0x3fd0c9,
   fence: 0xc96f3b,
+  structure: 0xd8cbb0,
 };
 
 const CRATE_COLORS = [PALETTE.sand, PALETTE.orange, PALETTE.violet, 0x4cc9b0] as const;
@@ -159,7 +160,7 @@ export class SandboxView {
       this.rotation.set(block.rotation.x, block.rotation.y, block.rotation.z, block.rotation.w);
       scale.set(block.half.x, block.half.y, block.half.z);
       mesh.setMatrixAt(i, this.matrix.compose(this.position, this.rotation, scale));
-      mesh.setColorAt(i, tint.setHex(BLOCK_COLORS[block.kind]));
+      mesh.setColorAt(i, tint.setHex(block.color ?? BLOCK_COLORS[block.kind]));
     });
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();

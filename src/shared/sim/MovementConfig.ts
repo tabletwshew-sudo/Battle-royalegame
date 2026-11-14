@@ -167,6 +167,13 @@ export interface MovementConfig {
   gliderCooldown: number;
   /** Launch pad take-off speed, m/s. */
   launchPadSpeed: number;
+
+  // --- Swimming (M4) ---
+  swimSpeed: number;
+  /** Feet depth below the surface while floating, metres. */
+  swimDepth: number;
+  /** Feet deeper than this below the surface start a swim. */
+  swimEnterDepth: number;
 }
 
 export function defaultMovementConfig(): MovementConfig {
@@ -268,6 +275,10 @@ export function defaultMovementConfig(): MovementConfig {
     redeployMinSpeed: 12,
     gliderCooldown: 1,
     launchPadSpeed: 95,
+
+    swimSpeed: 4.5,
+    swimDepth: 1.3,
+    swimEnterDepth: 1.35,
   };
 }
 

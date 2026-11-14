@@ -118,6 +118,39 @@ export class PhysicsWorld {
     return this.world.createCollider(desc);
   }
 
+  /** Adds an immovable vertical-axis cylinder (posts, trunks, tanks). */
+  addStaticCylinder(center: Vec3, radius: number, halfHeight: number, rotation: Quat = IDENTITY_QUAT): RAPIER.Collider {
+    const desc = RAPIER.ColliderDesc.cylinder(halfHeight, radius)
+      .setTranslation(center.x, center.y, center.z)
+      .setRotation(rotation)
+      .setFriction(0.9)
+      .setCollisionGroups(interactionGroups(Layer.World, Layer.All));
+    return this.world.createCollider(desc);
+  }
+
+  /** Adds an immovable convex hull built from world-space points; null when the points are degenerate. */
+  addStaticConvexHull(points: Float32Array): RAPIER.Collider | null {
+    const desc = RAPIER.ColliderDesc.convexHull(points);
+    if (desc === null) return null;
+    desc.setFriction(0.9).setCollisionGroups(interactionGroups(Layer.World, Layer.All));
+    return this.world.createCollider(desc);
+  }
+
+  /**
+   * Adds a terrain heightfield.
+   * @param cells       cells per side (heights has (cells + 1)^2 values)
+   * @param heights     Rapier layout: column-major, rows along z, columns along x
+   * @param center      world position of the grid centre (y = 0 keeps heights absolute)
+   * @param size        side length of the square grid in metres
+   */
+  addHeightfield(cells: number, heights: Float32Array, center: Vec3, size: number): RAPIER.Collider {
+    const desc = RAPIER.ColliderDesc.heightfield(cells, cells, heights, { x: size, y: 1, z: size })
+      .setTranslation(center.x, center.y, center.z)
+      .setFriction(0.9)
+      .setCollisionGroups(interactionGroups(Layer.World, Layer.All));
+    return this.world.createCollider(desc);
+  }
+
   /** Adds a simulated box (a prop) and returns its rigid body. */
   addDynamicBox(center: Vec3, half: Vec3, options: BoxOptions = {}): RAPIER.RigidBody {
     const body = this.world.createRigidBody(

@@ -7,7 +7,7 @@ Legend: [x] done · [ ] not started · [~] in progress
 - [x] **M1 Core engine**: renderer factory (WebGPU + WebGL2), fixed loop, input, Rapier world, shared Rng/Events/Rules, debug overlay, determinism harness
 - [x] **M2 Movement v1**: character controller, walk/jump/crouch, third-person camera + spring arm + ADS, procedural rig
 - [x] **M3 Zero Build locomotion**: sprint/stamina, slide, mantle/hurdle/vault, shoulder bash, roll landing, skydive, glider, redeploy, fall damage, F9 self-test
-- [ ] M4 Island + graphics: heightmap/biomes/POIs, terrain, foliage, water, sky, shadows, materials, post stack, quality presets, particles
+- [~] M4 Island + graphics: heightmap/biomes/POIs, terrain, foliage, water, sky, shadows, materials, post stack, quality presets, particles
 - [ ] M5 Combat core: layered health/shield/overshield, hitboxes, hitscan + bloom + recoil, projectiles, weapon data, inventory, weapon views, training range, balance report
 - [ ] M6 Loot & economy: chests, floor loot, consumables, pocket items, destructibles, benches, vending, scrap, starting loadout
 - [ ] M7 Audio: procedural engine, SFX bank, ambience on events
@@ -67,6 +67,15 @@ Flags consumed in M1: `?seed=`, `?renderer=webgl`, `?quality=`. The others are p
 - [x] Vitals (overshield/shield/health layers, regen) for fall damage and slide kicks
 - [x] Client: per-mode procedural poses, glider + pickaxe models, sprint FOV kick, slide roll, skydive/glide framing, HUD vitals + energy bar + prompts + altitude, door view, F4 probe view + lil-gui tuning, F9 self-test panel
 - [x] 29-case movement self-test (vitest + F9 in the browser: 29/29 in both), 133 tests, determinism incl. a scripted launch/skydive/glide snapshot run, smoke green on WebGL2 and on the WebGPU-fallback path
+
+## M4 checklist (in progress)
+- [x] Shared island generation: deterministic value/fBm/ridged noise, warped coastline with beaches, hills, terraced mountains (cliffs), 11 flattened POI pads, carved lakes (Loot Lake with its island), biomes, jittered-grid trees/rocks/bushes
+- [x] Procedural buildings (house, shop, warehouse, switchback tower) and 11 landmarks; doors; launch pads on landmarks and mountain peaks
+- [x] StaticWorld abstraction (playground + island), heightfield collider matching the shared height sampler, convex rock hulls, tree trunks
+- [x] Swim mode (float, 4.5 m/s, climb out, wade out; water landings take no damage)
+- [x] Tests: island generation/determinism/heightfield parity/pads/props, island sandbox spawn + swim + snapshot determinism; self-tests for house and tower walkability (31/31)
+- [ ] Client rendering: terrain LOD, cel/rim materials, buildings, foliage with wind, water, sky + time of day, CSM shadows
+- [ ] Post stack, quality presets + dynamic resolution, particles (GPU + CPU), F5 VFX menu
 
 ## Known issues
 - **WebGPU not verified on screen.** The container's headless Chromium initializes WebGPU and compiles pipelines but cannot present frames (no swap-chain image support), so it drops the device. The game then switches to WebGL2 by itself. A WebGPU frame still needs to be checked once on a real GPU browser.
